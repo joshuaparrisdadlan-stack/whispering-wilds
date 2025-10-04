@@ -1,0 +1,144 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Whispering Wilds</title>
+
+  <!-- Make it installable as a PWA later -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#0f172a"/>
+
+  <!-- Minimal styles (big text, console vibes) -->
+  <style>
+    :root { --bg:#0b0f1a; --fg:#e5e7eb; --muted:#94a3b8; --accent:#38bdf8; }
+    html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:16px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;}
+    .wrap{max-width:800px;margin:0 auto;display:flex;flex-direction:column;min-height:100%}
+    header{padding:16px 12px;border-bottom:1px solid #1f2937;color:var(--muted)}
+    main{flex:1;display:flex;flex-direction:column;gap:8px;padding:12px}
+    #out{flex:1;overflow:auto;border:1px solid #1f2937;border-radius:10px;padding:12px;white-space:pre-wrap;background:#0a0e19}
+    .row{display:flex;gap:8px}
+    #cmd{flex:1;padding:10px;border-radius:10px;border:1px solid #1f2937;background:#0a0e19;color:var(--fg)}
+    button{padding:10px 14px;border-radius:10px;border:1px solid #1f2937;background:#0a0e19;color:var(--fg)}
+    button:active{transform:translateY(1px)}
+    footer{padding:10px 12px;color:var(--muted);font-size:12px;border-top:1px solid #1f2937}
+    .pill{border:1px solid #1f2937;border-radius:999px;padding:2px 8px;margin-left:6px;color:var(--accent)}
+  </style>
+
+  <!-- PyScript (Pyodide) -->
+  <link rel="stylesheet" href="https://pyscript.net/latest/pyscript.css" />
+  <script defer src="https://pyscript.net/latest/pyscript.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    Whispering Wilds <span class="pill">web</span>
+  </header>
+  <main>
+    <div id="out"></div>
+    <div class="row">
+      <input id="cmd" placeholder="type: look, go n/e/s/w, take apple, talk caretaker, say 1, map, help…" />
+      <button id="send">Send</button>
+    </div>
+    <div class="row">
+      <button data-q="help">help</button>
+      <button data-q="map">map</button>
+      <button data-q="stats">stats</button>
+      <button data-q="bestiary">bestiary</button>
+      <button data-q="quests">quests</button>
+    </div>
+  </main>
+  <footer>Runs fully in your browser via PyScript (no server needed).</footer>
+</div>
+
+<py-script>
+# ---------- UI plumbing ----------
+from js import document
+out = document.getElementById("out")
+cmd_input = document.getElementById("cmd")
+send_btn = document.getElementById("send")
+
+def println(text:str=""):
+    # Append a line to the output box and scroll
+    out.innerHTML += (str(text).replace("&","&amp;").replace("<","&lt;") + "<br>")
+    out.scrollTop = out.scrollHeight
+
+# Hook Python print() to our console
+import builtins
+builtins.print = println
+
+# ---------- YOUR GAME CODE (paste) ----------
+# Paste your entire game file contents BELOW, replacing ONLY the placeholder line.
+# IMPORTANT: leave the last runner block `if __name__ == "__main__": ...` OUT,
+# because the web UI will drive the game (we don't want input()).
+
+# ==== BEGIN GAME CODE ====
+# (PASTE all code from your Python file here, BUT delete the final runner block.)
+</py-script>
+
+<py-script>
+# ==== END GAME CODE ====  (web wrapper follows)
+
+# Boot the engine without entering the blocking .run() loop
+game = Game()
+game.say("Welcome to the Whispering Wilds. Type 'help' for commands.")
+game.look()
+
+# REPLACE blocking input loop with our button handler
+def handle_line(text:str):
+    if not text: 
+        return
+    println(f"&gt; {text}")
+    keep_going = game.dispatch(text)
+    if not keep_going:
+        println("Goodbye.")
+    cmd_input.value = ""
+    cmd_input.focus()
+
+# Wire buttons
+def on_send(evt):
+    handle_line(cmd_input.value)
+
+send_btn.addEventListener("click", on_send)
+
+# Enter on the input box
+def on_key(evt):
+    if evt.key == "Enter":
+        on_send(evt)
+
+cmd_input.addEventListener("keydown", on_key)
+
+# Quick-action buttons
+for b in document.querySelectorAll("button[data-q]"):
+    def makehandler(btn):
+        def h(_):
+            handle_line(btn.getAttribute("data-q"))
+        return h
+    b.addEventListener("click", makehandler(b))
+
+cmd_input.focus()
+</py-script>
+
+<!-- Minimal PWA manifest (optional, helps PWABuilder) -->
+<script type="application/json" id="pwa-manifest">
+{
+  "name": "Whispering Wilds",
+  "short_name": "Wilds",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0b0f1a",
+  "theme_color": "#0f172a",
+  "icons": []
+}
+</script>
+<script>
+  // Expose a manifest file without creating a separate file
+  const blob = new Blob([document.getElementById('pwa-manifest').textContent], {type: 'application/manifest+json'});
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('link');
+  link.rel = 'manifest';
+  link.href = url;
+  document.head.appendChild(link);
+</script>
+</body>
+</html>
