@@ -26,8 +26,8 @@
   </style>
 
   <!-- PyScript (Pyodide) -->
-  <link rel="stylesheet" href="https://pyscript.net/latest/pyscript.css" />
-  <script defer src="https://pyscript.net/latest/pyscript.js"></script>
+  <link rel="stylesheet" href="https://pyscript.net/latest/core.css" />
+<script type="module" src="https://pyscript.net/latest/core.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -51,7 +51,7 @@
   <footer>Runs fully in your browser via PyScript (no server needed).</footer>
 </div>
 
-<py-script>
+<script type="py">
 # ---------- UI plumbing ----------
 from js import document
 out = document.getElementById("out")
