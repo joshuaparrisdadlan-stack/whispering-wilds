@@ -52,8 +52,11 @@
 </div>
 
 <script type="py">
+from __future__ import annotations
+
 # ---------- UI plumbing ----------
 from js import document
+
 out = document.getElementById("out")
 cmd_input = document.getElementById("cmd")
 send_btn = document.getElementById("send")
@@ -78,7 +81,7 @@ builtins.print = println
 # ===========================
 # TEXT ADVENTURE - PART 1 (Base Game)
 # ===========================
-from __future__ import annotations
+
 from typing import Dict, List, Optional
 import random
 
