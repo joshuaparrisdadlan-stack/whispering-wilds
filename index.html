@@ -2036,14 +2036,19 @@ cmd_input.addEventListener("keydown", KEY_PROXY)
 
 # Quick-action buttons
 QUICK_PROXIES = []
-for b in document.querySelectorAll("button[data-q]"):
-    def makehandler(btn):
+
+for b in document.querySelectorAll('button[data-q]').to_py():
+    q = b.getAttribute('data-q')          # capture plain string now
+
+    def makehandler(q=q):                  # bind q, not the element
         def h(_evt):
-            handle_line(btn.getAttribute("data-q"))
+            handle_line(q)
         return h
-    p = create_proxy(makehandler(b))
-    QUICK_PROXIES.append(p)           # keep refs so they’re not GC’d
-    b.addEventListener("click", p)
+
+    p = create_proxy(makehandler())
+    QUICK_PROXIES.append(p)                # keep refs so GC doesn't kill them
+    b.addEventListener('click', p)
+
 
 
 cmd_input.focus()
