@@ -26,8 +26,8 @@
   </style>
 
   <!-- PyScript (Pyodide) -->
-  <link rel="stylesheet" href="https://pyscript.net/latest/core.css" />
-<script type="module" src="https://pyscript.net/latest/core.js"></script>
+  <link rel="stylesheet" href="https://pyscript.net/releases/2024.6.1/core.css" />
+<script type="module" src="https://pyscript.net/releases/2024.6.1/core.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -1618,15 +1618,7 @@ def _p7_rng(game):
     #   game.player.add_item(ring_item)
     #   game.say("Glint! You dredge up a Lost Ring.")
 
-    # Optional: track catch for Trader quest
-    p7 = getattr(game, "_p7", None)
-    if p7:
-        q = p7["quests"].get("angler_aid")
-        if q and q["state"] == "accepted":
-            q["caught"] = q.get("caught", 0) + 1
-            if q["caught"] >= 2:
-                q["state"] = "completed"
-                game.say("Quest update: You’ve caught enough fish for the Trader!")
+  
 
 
 def _p7_cmd_mine(game, args) -> bool:
