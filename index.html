@@ -56,6 +56,8 @@
 
 # ---------- UI plumbing ----------
 from js import document
+from pyodide.ffi import create_proxy
+
 
 out = document.getElementById("out")
 cmd_input = document.getElementById("cmd")
@@ -2019,22 +2021,30 @@ def handle_line(text:str):
 def on_send(evt):
     handle_line(cmd_input.value)
 
-send_btn.addEventListener("click", on_send)
+CLICK_PROXY = create_proxy(on_send)   # keep a global ref
+send_btn.addEventListener("click", CLICK_PROXY)
+
 
 # Enter on the input box
 def on_key(evt):
     if evt.key == "Enter":
         on_send(evt)
 
-cmd_input.addEventListener("keydown", on_key)
+KEY_PROXY = create_proxy(on_key)
+cmd_input.addEventListener("keydown", KEY_PROXY)
+
 
 # Quick-action buttons
+QUICK_PROXIES = []
 for b in document.querySelectorAll("button[data-q]"):
     def makehandler(btn):
-        def h(_):
+        def h(_evt):
             handle_line(btn.getAttribute("data-q"))
         return h
-    b.addEventListener("click", makehandler(b))
+    p = create_proxy(makehandler(b))
+    QUICK_PROXIES.append(p)           # keep refs so they’re not GC’d
+    b.addEventListener("click", p)
+
 
 cmd_input.focus()
 </script>
