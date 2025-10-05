@@ -35,9 +35,10 @@
     Whispering Wilds <span class="pill">web</span>
   </header>
   <main>
-    <div id="out"></div>
+    <div id="out" role="log" aria-live="polite" aria-atomic="false"></div>
     <div class="row">
-      <input id="cmd" placeholder="type: look, go n/e/s/w, take apple, talk caretaker, say 1, map, help…" />
+      <input id="cmd" placeholder="type: look, go n/e/s/w, take apple, talk caretaker, say 1, map, help…"
+       autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" inputmode="text" />
       <button id="send">Send</button>
     </div>
     <div class="row">
@@ -62,6 +63,9 @@ from pyodide.ffi import create_proxy
 out = document.getElementById("out")
 cmd_input = document.getElementById("cmd")
 send_btn = document.getElementById("send")
+let hist = [];
+let histIndex = 0;
+
 
 def println(text: str = ""):
     node = document.createElement("div")
@@ -1357,6 +1361,16 @@ def _p6_do_action(game, action_id: str):
     if action_id == "ct_place":
         game.say('Caretaker: "These halls are called the Sanctum. The Wilds press close."')
         return
+    if action_id == "ct_wilds":
+        game.say('Caretaker: "Beyond the gate the Wilds shift like weather. Keep to paths until you learn their moods."')
+        return
+    if action_id == "ct_threats":
+        game.say('Caretaker: "Wolves of mist, thorns that wander, and shades that drink warmth. Listen more than you speak."')
+        return
+    if action_id == "ct_grove_lore":
+        game.say('Caretaker: "The northern grove remembers old songs. Heal it, and the road ahead will welcome you."')
+        return
+
     if action_id == "ct_offer_quest":
         q["state"] = "offered"
         _p6_journal_add(game, "Caretaker offered a task: Heal the Grove (bring 2 herbs).")
@@ -1576,6 +1590,8 @@ def part7_post_init(game):
         # Put the Old Watchtower off the Overgrown Verge (wilds_stub) to avoid stealing Wilds' west exit
         rooms["wilds_stub"].link("n", "wilds_tower")
         tower.link("s", "wilds_stub")
+        rooms["wilds"].link("w", "wilds_tower")
+
 
         lake.link("s", "wilds")
         mine.link("w", "wilds")
@@ -2085,6 +2101,9 @@ def handle_line(text:str):
     if not text: 
         return
     println("> " + text)   # use the real '>' char
+    hist.push(text);
+    histIndex = hist.length;
+
     keep_going = game.dispatch(text)
     autosave() 
     if not keep_going:
