@@ -2010,7 +2010,7 @@ game.look()
 def handle_line(text:str):
     if not text: 
         return
-    println(f"&gt; {text}")
+    println("> " + text)   # use the real '>' char
     keep_going = game.dispatch(text)
     if not keep_going:
         println("Goodbye.")
