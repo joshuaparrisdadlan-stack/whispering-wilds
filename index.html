@@ -1178,13 +1178,6 @@ import random
 
 P6_PREV_EXT = globals().get("ext_handle_command", None)
 
-# Topics we can hide once asked
-P6_LORE_ACTIONS = {
-    "ct_intro", "ct_place", "ct_wilds", "ct_threats",
-    "ct_grove_lore", "ct_herb_tips", "ct_grove_sick",
-    "ct_after", "ct_story", "ct_offer_quest"
-}
-
 
 
 def part6_post_init(game):
@@ -1203,7 +1196,6 @@ def part6_post_init(game):
                 "reward": {"gold": 3, "xp": 1},
             }
         },
-        "seen": {"caretaker": set()},   # <-- add this line
     }
     _ = game._p6["rng"].random()
 
@@ -1224,13 +1216,9 @@ def _p6_show_dialog(game, npc: str, options):
         game.say(f"  {i}. {text}")
     game.say("Say a number with: say [n]")
 
-def _p6_open_caretaker_dialog(game, show_all: bool = False):
-    # Ensure the seen bucket exists (even if Part 6 was reloaded)
-    seen = game._p6.setdefault("seen", {}).setdefault("caretaker", set())
-
+def _p6_open_caretaker_dialog(game):
     q = game._p6["quests"]["heal_grove"]
     state = q["state"]
-
     if state in ("new", "offered"):
         opts = [
             ("Who are you?", "ct_intro"),
@@ -1260,40 +1248,7 @@ def _p6_open_caretaker_dialog(game, show_all: bool = False):
             ("Tell me a story.", "ct_story"),
             ("Goodbye.", "ct_bye"),
         ]
-
-    if not show_all:
-        # Hide lore we already asked (leave Goodbye)
-        hidden_any = False
-        filtered = []
-        for text, aid in opts:
-            if aid == "ct_bye":
-                filtered.append((text, aid))
-            elif aid in P6_LORE_ACTIONS and aid in seen:
-                hidden_any = True
-                continue
-            else:
-                filtered.append((text, aid))
-
-        # If we hid something and still have choices, add a toggle
-        if hidden_any and any(aid != "ct_bye" for (_t, aid) in filtered):
-            filtered = [("(Show previous topics…)", "ct_show_all")] + filtered
-
-        # If only Goodbye remains, end cleanly
-        if not [1 for (_t, aid) in filtered if aid != "ct_bye"]:
-            game.say('Caretaker: "That’s all I’ve for now."')
-            game._p6["dialog"] = None
-            return
-
-        opts = filtered
-
     _p6_show_dialog(game, "Caretaker", opts)
-
-def _p6_cmd_forget_topics(game):
-    game._p6.setdefault("seen", {}).setdefault("caretaker", set()).clear()
-    print("Forgot caretaker topics.")
-
-
-
 
 def _p6_eval_requirements(game, need: dict) -> bool:
     """Check if player has required items/mats. Uses Part 3 mats if present."""
@@ -1325,83 +1280,38 @@ def _p6_apply_reward(game, reward: dict) -> None:
 
 def _p6_do_action(game, action_id: str):
     q = game._p6["quests"]["heal_grove"]
-    seen = game._p6["seen"]["caretaker"]
-
-    def reopen(all=False):
-        _p6_open_caretaker_dialog(game, show_all=all)
-
-    if action_id == "ct_show_all":
-        reopen(all=True); return
 
     if action_id == "ct_intro":
         game.say('Caretaker: "A watcher of thresholds. I keep small fires lit."')
-        seen.add("ct_intro"); reopen(); return
-
+        return
     if action_id == "ct_place":
         game.say('Caretaker: "These halls are called the Sanctum. The Wilds press close."')
-        seen.add("ct_place"); reopen(); return
-
-    if action_id == "ct_wilds":
-        game.say('Caretaker: "The Wilds are old and restless. Paths shift, but truth holds: keep your wits, keep a light."')
-        seen.add("ct_wilds"); reopen(); return
-
-    if action_id == "ct_threats":
-        game.say('Caretaker: "Wolves thin as fog, bramble-things that snag the mind, and shades by the bog. Don’t linger when the air turns cold."')
-        seen.add("ct_threats"); reopen(); return
-
-    if action_id == "ct_grove_lore":
-        game.say('Caretaker: "The northern grove keeps the Sanctum breathing. Its roots drink the dawn. When it ails, so do we."')
-        seen.add("ct_grove_lore"); reopen(); return
-
+        return
     if action_id == "ct_offer_quest":
         q["state"] = "offered"
         _p6_journal_add(game, "Caretaker offered a task: Heal the Grove (bring 2 herbs).")
         game.say('Caretaker: "The northern grove is sick. Bring me 2 herbs for a remedy."')
         game.say("Type: accept heal_grove   (or talk caretaker again for details)")
-        seen.add("ct_offer_quest")
-        reopen(); return
-
+        return
     if action_id == "ct_remind":
         need = ", ".join(f"{v} {k}" for k, v in q["need"].items())
         game.say(f'Caretaker: "Gather {need}. The grove north of here is fading."')
-        seen.add("ct_remind"); reopen(); return
-
-    if action_id == "ct_herb_tips":
-        game.say('Caretaker: "Herbs like damp edges. Try the brook or shaded ground. Forage patiently—fiber and herb both have their uses."')
-        seen.add("ct_herb_tips"); reopen(); return
-
-    if action_id == "ct_grove_sick":
-        game.say('Caretaker: "A chill blight rides the leaf-veins. A simple remedy—two good herbs—will set it right enough."')
-        seen.add("ct_grove_sick"); reopen(); return
-
+        return
     if action_id == "ct_turnin":
         if q["state"] != "completed":
             game.say('Caretaker: "You seem unready yet."')
-            reopen(); return
+            return
+        # Finalise in turnin command to consume + reward
         game.say('Caretaker: "If you are certain, give them here."')
         game.say("Use: turnin heal_grove")
-        seen.add("ct_turnin"); reopen(); return
-
+        return
     if action_id == "ct_after":
         game.say('Caretaker: "The grove breathes easier. Thank you."')
-        seen.add("ct_after"); reopen(); return
-
-    if action_id == "ct_more_work":
-        game.say('Caretaker: "For now, look east. The Ranger needs ore, the Trader craves fish, and the Hermit seeks glowcaps. They’ll keep your hands honest."')
-        seen.add("ct_more_work"); reopen(); return
-
-    if action_id == "ct_story":
-        game.say('Caretaker: "Once, the Sanctum bell rang so softly even moths bowed. We listen still, in case it learns our names again."')
-        seen.add("ct_story"); reopen(); return
-
+        return
     if action_id == "ct_bye":
         game.say("You end the conversation.")
         game._p6["dialog"] = None
         return
-
-    game.say(f"(No response for action: {action_id})")
-
-
 
 # -------- commands --------
 
@@ -1521,12 +1431,6 @@ def p6_ext_handle_command(cmd, args, game):
         if prev and prev(cmd, args, game):
             return True
         return False
-
-    if cmd == "forget_topics":
-        _p6_cmd_forget_topics(game)
-        return True
-
-
 
     if cmd == "talk":
         if _p6_cmd_talk(game, args):
