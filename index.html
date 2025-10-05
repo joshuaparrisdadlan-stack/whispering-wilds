@@ -2120,9 +2120,26 @@ send_btn.addEventListener("click", CLICK_PROXY)
 
 
 # Enter on the input box
-def on_key(evt):
-    if evt.key == "Enter":
-        on_send(evt)
+function on_key(evt) {
+  if (evt.key === "Enter") {
+    on_send(evt);
+  } else if (evt.key === "ArrowUp") {
+    if (hist.length) {
+      histIndex = Math.max(0, histIndex - 1);
+      cmd_input.value = hist[histIndex];
+      // place cursor at end
+      const v = cmd_input.value; cmd_input.value = ""; cmd_input.value = v;
+    }
+    evt.preventDefault();
+  } else if (evt.key === "ArrowDown") {
+    if (hist.length) {
+      histIndex = Math.min(hist.length, histIndex + 1);
+      cmd_input.value = histIndex === hist.length ? "" : hist[histIndex];
+    }
+    evt.preventDefault();
+  }
+}
+
 
 KEY_PROXY = create_proxy(on_key)
 cmd_input.addEventListener("keydown", KEY_PROXY)
