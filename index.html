@@ -63,10 +63,12 @@ out = document.getElementById("out")
 cmd_input = document.getElementById("cmd")
 send_btn = document.getElementById("send")
 
-def println(text:str=""):
-    # Append a line to the output box and scroll
-    out.innerHTML += (str(text).replace("&","&amp;").replace("<","&lt;") + "<br>")
+def println(text: str = ""):
+    node = document.createElement("div")
+    node.textContent = str(text)   # no HTML, no entities
+    out.appendChild(node)
     out.scrollTop = out.scrollHeight
+
 
 # Hook Python print() to our console
 import builtins
