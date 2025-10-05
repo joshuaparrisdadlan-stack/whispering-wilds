@@ -444,68 +444,57 @@ class Game:
         )
 
     def dispatch(self, line: str) -> bool:
-    parts = line.strip().split()
-    if not parts:
-        return True
-    cmd, args = parts[0].lower(), parts[1:]
+        parts = line.strip().split()
+        if not parts:
+            return True
+        cmd, args = parts[0].lower(), parts[1:]
 
-    # --- Numeric shortcut for dialogue (typing "7" acts like "say 7") ---
-    if cmd.isdigit():
-        try:
-            return _p6_cmd_say(self, [cmd])  # handled by Part 6; prints a helpful message if no dialog
-        except NameError:
-            self.say("No one is listening.")
+        ext = globals().get("ext_handle_command")
+        if callable(ext):
+            try:
+                if ext(cmd, args, self):
+                    return True
+            except Exception as e:
+                self.say(f"[Extension ignored] {e}")
+
+        if cmd in ("quit", "exit", "q"):
+            return False
+        if cmd == "help":
+            self.help()
+            return True
+        if cmd == "look":
+            self.look()
+            return True
+        if cmd in ("move", "go"):
+            if args:
+                self.move(args[0])
+            else:
+                self.say("Use: move n/s/e/w")
+            return True
+        if cmd == "take":
+            self.take(" ".join(args))
+            return True
+        if cmd == "drop":
+            self.drop(" ".join(args))
+            return True
+        if cmd == "use":
+            self.use(" ".join(args))
+            return True
+        if cmd == "talk":
+            self.talk(" ".join(args))
+            return True
+        if cmd == "inv":
+            self.inv()
+            return True
+        if cmd == "map":
+            self.map()
+            return True
+        if cmd == "stats":
+            self.stats()
             return True
 
-    # Let extensions (Parts 2–7) handle first
-    ext = globals().get("ext_handle_command")
-    if callable(ext):
-        try:
-            if ext(cmd, args, self):
-                return True
-        except Exception as e:
-            self.say(f"[Extension ignored] {e}")
-
-    # Built-in commands (base game)
-    if cmd in ("quit", "exit", "q"):
-        return False
-    if cmd == "help":
-        self.help()
+        self.say("Unknown command. Try 'help'.")
         return True
-    if cmd == "look":
-        self.look()
-        return True
-    if cmd in ("move", "go"):
-        if args:
-            self.move(args[0])
-        else:
-            self.say("Use: move n/s/e/w")
-        return True
-    if cmd == "take":
-        self.take(" ".join(args))
-        return True
-    if cmd == "drop":
-        self.drop(" ".join(args))
-        return True
-    if cmd == "use":
-        self.use(" ".join(args))
-        return True
-    if cmd == "talk":
-        self.talk(" ".join(args))
-        return True
-    if cmd == "inv":
-        self.inv()
-        return True
-    if cmd == "map":
-        self.map()
-        return True
-    if cmd == "stats":
-        self.stats()
-        return True
-
-    self.say("Unknown command. Try 'help'.")
-    return True
-
 
     def run(self) -> None:
         self.say("Welcome to the Whispering Wilds. Type 'help' for commands.")
@@ -617,28 +606,6 @@ def _p3_forage(game):
     found = "herb" if rng.random() < 0.5 else "fiber"
     game._p3["mats"][found] += 1
     game.say(f"You forage and find 1 {found}.")
-
-    # --- Tutorial progress: Foraging lesson ---
-    try:
-        # Only complete when the player forages at the brook (brook_ne)
-        # and the lesson is currently accepted.
-        if getattr(game, "cur_room", "") == "brook_ne":
-            p6 = getattr(game, "_p6", None)
-            if p6:
-                fq = p6.get("quests", {}).get("forage_lesson")
-                if fq and fq.get("state") == "accepted":
-                    fq["state"] = "completed"
-                    # Journal note if Part 4 exists
-                    try:
-                        _p6_journal_add(game, "Completed step: tried foraging at the brook.")
-                    except Exception:
-                        pass
-                    game.say("(You feel you’ve got the hang of foraging. The Caretaker will want to hear.)")
-    except Exception:
-        # Be silent if earlier parts aren’t loaded
-        pass
-
-
 
 def _p3_craft(game, what):
     if not game or not hasattr(game, "_p3"):
@@ -1226,27 +1193,19 @@ def part6_post_init(game):
         return
     game._p6 = {
         "rng": random.Random(6006),
-        "dialog": None,
+        "dialog": None,  # {"npc": str, "options": [(text, action_id), ...]}
         "quests": {
             "heal_grove": {
                 "title": "Heal the Grove",
-                "state": "new",
+                "state": "new",     # new -> offered -> accepted -> completed -> turned_in
                 "need": {"herb": 2},
                 "lore": "The northern grove is ailing. Brew a simple remedy.",
                 "reward": {"gold": 3, "xp": 1},
-            },
-            "forage_lesson": {
-                "title": "Lesson: Foraging",
-                "state": "new",
-                "need": {},
-                "lore": "The Caretaker will teach you to forage at the brook.",
-                "reward": {"gold": 1, "xp": 1},
-            },
+            }
         },
-        "seen": {"caretaker": set()},
+        "seen": {"caretaker": set()},   # <-- add this line
     }
     _ = game._p6["rng"].random()
-
 
 # -------- helpers --------
 
@@ -1302,22 +1261,6 @@ def _p6_open_caretaker_dialog(game, show_all: bool = False):
             ("Goodbye.", "ct_bye"),
         ]
 
-    # --- Tutorial: Foraging lesson options ---
-    fq = game._p6["quests"].get("forage_lesson")
-    if fq:
-        if fq["state"] in ("new", "offered"):
-            # Insert just before Goodbye
-            for i, (_t, aid) in enumerate(opts):
-                if aid == "ct_bye":
-                    opts.insert(i, ("Can you teach me to forage?", "ct_teach_forage_offer"))
-                    break
-        elif fq["state"] == "accepted":
-            for i, (_t, aid) in enumerate(opts):
-                if aid == "ct_bye":
-                    opts.insert(i, ("I tried foraging.", "ct_teach_forage_turnin"))
-                    opts.insert(i, ("How do I forage again?", "ct_teach_forage_remind"))
-                    break
-
     if not show_all:
         # Hide lore we already asked (leave Goodbye)
         hidden_any = False
@@ -1344,7 +1287,6 @@ def _p6_open_caretaker_dialog(game, show_all: bool = False):
         opts = filtered
 
     _p6_show_dialog(game, "Caretaker", opts)
-
 
 def _p6_cmd_forget_topics(game):
     game._p6.setdefault("seen", {}).setdefault("caretaker", set()).clear()
@@ -1452,32 +1394,6 @@ def _p6_do_action(game, action_id: str):
         game.say('Caretaker: "Once, the Sanctum bell rang so softly even moths bowed. We listen still, in case it learns our names again."')
         seen.add("ct_story"); reopen(); return
 
-        # --- Foraging lesson actions ---
-    if action_id == "ct_teach_forage_offer":
-        fq = game._p6["quests"].get("forage_lesson")
-        if fq and fq["state"] in ("new", "offered"):
-            fq["state"] = "offered"
-            _p6_journal_add(game, "Caretaker offered a lesson: forage once at the brook (east then north-east).")
-            game.say('Caretaker: "Go to the brook and try this word: forage. Bring back what you find."')
-            game.say("Type: accept forage_lesson")
-        reopen(); return
-
-    if action_id == "ct_teach_forage_remind":
-        game.say('Caretaker: "Stand by damp ground—the brook north-east is best—and say: forage."')
-        reopen(); return
-
-    if action_id == "ct_teach_forage_turnin":
-        fq = game._p6["quests"].get("forage_lesson")
-        if not fq or fq["state"] != "completed":
-            game.say('Caretaker: "Try foraging once, then tell me."')
-            reopen(); return
-        _p6_apply_reward(game, fq.get("reward", {"gold": 1, "xp": 1}))
-        fq["state"] = "turned_in"
-        _p6_journal_add(game, "Finished lesson: Foraging.")
-        game.say('Caretaker: "Well done. The Wilds feed those who ask kindly."')
-        reopen(); return
-
-
     if action_id == "ct_bye":
         game.say("You end the conversation.")
         game._p6["dialog"] = None
@@ -1532,37 +1448,18 @@ def _p6_cmd_accept(game, args) -> bool:
     if not args:
         game.say("Accept what? Try: accept heal_grove")
         return True
-
     key = args[0].lower()
-
-    # Heal the Grove (existing)
-    if key == "heal_grove":
-        q = game._p6["quests"]["heal_grove"]
-        if q["state"] not in ("new", "offered"):
-            game.say("You have already decided.")
-            return True
-        q["state"] = "accepted"
-        _p6_journal_add(game, "Accepted quest: Heal the Grove (bring 2 herbs).")
-        game.say("Quest accepted: Heal the Grove.")
+    if key != "heal_grove":
+        game.say("No such offer.")
         return True
-
-    # NEW: Lesson — Foraging
-    if key == "forage_lesson":
-        fq = game._p6["quests"].get("forage_lesson")
-        if not fq:
-            game.say("No such offer.")
-            return True
-        if fq["state"] not in ("new", "offered"):
-            game.say("You have already decided.")
-            return True
-        fq["state"] = "accepted"
-        _p6_journal_add(game, "Accepted lesson: Foraging (try 'forage' once at the brook north-east of the Sanctum).")
-        game.say('Caretaker: "Good. Go north to the grove, then east to the brook, and say: forage."')
+    q = game._p6["quests"]["heal_grove"]
+    if q["state"] not in ("new", "offered"):
+        game.say("You have already decided.")
         return True
-
-    game.say("No such offer.")
+    q["state"] = "accepted"
+    _p6_journal_add(game, "Accepted quest: Heal the Grove (bring 2 herbs).")
+    game.say("Quest accepted: Heal the Grove.")
     return True
-
 
 def _p6_cmd_turnin(game, args) -> bool:
     if not game:
@@ -1620,8 +1517,7 @@ def p6_ext_handle_command(cmd, args, game):
     prev = P6_PREV_EXT if P6_PREV_EXT is not p6_ext_handle_command else None
 
     if cmd == "help":
-        print("Part 6 adds: talk caretaker (dialogue), say [n] (choose), quests, accept heal_grove / accept forage_lesson, turnin heal_grove")
-
+        print("Part 6 adds: talk caretaker (dialogue), say [n] (choose), quests, accept heal_grove, turnin heal_grove")
         if prev and prev(cmd, args, game):
             return True
         return False
