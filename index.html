@@ -74,6 +74,76 @@ def println(text: str = ""):
 import builtins
 builtins.print = println
 
+# --- autosave helpers (goes right under the UI plumbing) ---
+from js import window
+
+def _pack_state(game):
+    import json, base64
+    state = {
+        "cur_room": getattr(game, "cur_room", None),
+        "inv": [it.id for it in getattr(game, "player", None).inv.values()],
+        "hp": getattr(game.player, "hp", 10),
+        "max_hp": getattr(game.player, "max_hp", 10),
+    }
+    if getattr(game, "_p2", None):
+        state["p2"] = {"xp": game._p2.get("xp", 0), "bandages": game._p2.get("bandages", 0)}
+    if getattr(game, "_p3", None):
+        state["p3"] = {"gold": game._p3.get("gold", 0), "mats": game._p3.get("mats", {}), "flags": game._p3.get("flags", {})}
+    if getattr(game, "_p4", None):
+        state["p4"] = {"journal": game._p4.get("journal", []), "options": game._p4.get("options", {})}
+    return base64.b64encode(json.dumps(state, separators=(",", ":")).encode()).decode()
+
+def _unpack_state(game, code):
+    import json, base64
+    try:
+        data = json.loads(base64.b64decode(code).decode())
+    except Exception:
+        println("(couldn’t read autosave)")
+        return
+    # core
+    if "cur_room" in data and data["cur_room"] in game.world.rooms:
+        game.cur_room = data["cur_room"]
+    if "hp" in data and "max_hp" in data:
+        game.player.max_hp = int(data["max_hp"])
+        game.player.hp = max(0, min(game.player.max_hp, int(data["hp"])))
+    # items
+    if "inv" in data:
+        game.player.inv.clear()
+        for iid in data["inv"]:
+            if iid == "rust_key":
+                game.player.add_item(Item("rust_key","Rusty Key","Old key", True))
+            elif iid == "apple":
+                game.player.add_item(Item("apple","Apple","A crisp, red apple.", True))
+            else:
+                game.player.add_item(Item(iid, iid, "Recovered item."))
+    # optional parts
+    if "p2" in data and getattr(game, "_p2", None): game._p2.update({k:int(v) for k,v in data["p2"].items()})
+    if "p3" in data and getattr(game, "_p3", None):
+        game._p3["gold"]  = int(data["p3"].get("gold", game._p3.get("gold", 0)))
+        game._p3["mats"]  = dict(data["p3"].get("mats", game._p3.get("mats", {})))
+        game._p3["flags"] = dict(data["p3"].get("flags", game._p3.get("flags", {})))
+    if "p4" in data and getattr(game, "_p4", None):
+        game._p4["journal"] = list(data["p4"].get("journal", []))
+        game._p4["options"] = dict(data["p4"].get("options", {}))
+
+def autosave():
+    try:
+        window.localStorage.setItem("wilds_save", _pack_state(game))
+    except Exception:
+        pass
+
+def autoload():
+    try:
+        code = window.localStorage.getItem("wilds_save")
+        if code:
+            _unpack_state(game, code)
+            game.look()
+            println("(autosave loaded)")
+    except Exception:
+        pass
+# --- end autosave helpers ---
+
+
 # ---------- YOUR GAME CODE (paste) ----------
 # Paste your entire game file contents BELOW, replacing ONLY the placeholder line.
 # IMPORTANT: leave the last runner block `if __name__ == "__main__": ...` OUT,
@@ -2007,6 +2077,8 @@ ext_handle_command = p7_ext_handle_command
 game = Game()
 game.say("Welcome to the Whispering Wilds. Type 'help' for commands.")
 game.look()
+autoload()   # <— add this line
+
 
 # REPLACE blocking input loop with our button handler
 def handle_line(text:str):
@@ -2014,6 +2086,7 @@ def handle_line(text:str):
         return
     println("> " + text)   # use the real '>' char
     keep_going = game.dispatch(text)
+    autosave() 
     if not keep_going:
         println("Goodbye.")
     cmd_input.value = ""
