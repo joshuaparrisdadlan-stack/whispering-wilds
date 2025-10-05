@@ -444,83 +444,68 @@ class Game:
         )
 
     def dispatch(self, line: str) -> bool:
-    line = line.strip()
-    if not line:
+    parts = line.strip().split()
+    if not parts:
         return True
-
-    # --- Numeric shortcut for dialogue (typing "7" acts like "say 7") ---
-    if line.isdigit():
-        try:
-            return _p6_cmd_say(self, [line])
-        except NameError:
-            pass  # if Part 6 isn't loaded yet, fall through
-
-    parts = line.split()
     cmd, args = parts[0].lower(), parts[1:]
 
+    # --- Numeric shortcut for dialogue (typing "7" acts like "say 7") ---
+    if cmd.isdigit():
+        try:
+            return _p6_cmd_say(self, [cmd])  # handled by Part 6; prints a helpful message if no dialog
+        except NameError:
+            self.say("No one is listening.")
+            return True
 
-# --- Numeric shortcut for dialogue (typing "7" acts like "say 7") ---
-#if cmd.isdigit():
-    # Reuse Part 6's say handler. It will print a helpful message if no dialog is open.
- #   try:
- #       return _p6_cmd_say(self, [cmd])
- #   except NameError:
-        # Part 6 not loaded; fall through to unknown command
-        pass
+    # Let extensions (Parts 2–7) handle first
+    ext = globals().get("ext_handle_command")
+    if callable(ext):
+        try:
+            if ext(cmd, args, self):
+                return True
+        except Exception as e:
+            self.say(f"[Extension ignored] {e}")
 
-
-  
-        ext = globals().get("ext_handle_command")
-        if callable(ext):
-            try:
-                if ext(cmd, args, self):
-                    return True
-            except Exception as e:
-                self.say(f"[Extension ignored] {e}")
-
-        if cmd in ("quit", "exit", "q"):
-            return False
-        if cmd == "help":
-            self.help()
-            return True
-        if cmd == "look":
-            self.look()
-            return True
-        if cmd in ("move", "go"):
-            if args:
-                self.move(args[0])
-            else:
-                self.say("Use: move n/s/e/w")
-            return True
-        if cmd == "take":
-            self.take(" ".join(args))
-            return True
-        if cmd == "drop":
-            self.drop(" ".join(args))
-            return True
-        if cmd == "use":
-            self.use(" ".join(args))
-            return True
-        if cmd == "talk":
-            self.talk(" ".join(args))
-            return True
-        if cmd == "inv":
-            self.inv()
-            return True
-        if cmd == "map":
-            self.map()
-            return True
-        if cmd == "stats":
-            self.stats()
-            return True
-            # --- Numeric shortcut for dialogue (e.g. typing just "1" acts like "say 1") ---
-        if cmd.isdigit():
-            _p6_cmd_say(game, [cmd])
-            return
-
-  
-        self.say("Unknown command. Try 'help'.")
+    # Built-in commands (base game)
+    if cmd in ("quit", "exit", "q"):
+        return False
+    if cmd == "help":
+        self.help()
         return True
+    if cmd == "look":
+        self.look()
+        return True
+    if cmd in ("move", "go"):
+        if args:
+            self.move(args[0])
+        else:
+            self.say("Use: move n/s/e/w")
+        return True
+    if cmd == "take":
+        self.take(" ".join(args))
+        return True
+    if cmd == "drop":
+        self.drop(" ".join(args))
+        return True
+    if cmd == "use":
+        self.use(" ".join(args))
+        return True
+    if cmd == "talk":
+        self.talk(" ".join(args))
+        return True
+    if cmd == "inv":
+        self.inv()
+        return True
+    if cmd == "map":
+        self.map()
+        return True
+    if cmd == "stats":
+        self.stats()
+        return True
+
+    self.say("Unknown command. Try 'help'.")
+    return True
+
 
     def run(self) -> None:
         self.say("Welcome to the Whispering Wilds. Type 'help' for commands.")
