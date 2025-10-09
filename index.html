@@ -260,6 +260,8 @@
             <button id="cb-add">Add Button</button>
             <label style="margin-left:12px; font-size:12px;">Append mode</label>
             <input type="checkbox" id="cb-append" style="vertical-align:middle; margin-left:6px;" />
+            <label style="margin-left:12px; font-size:12px;">Batch summary</label>
+            <input type="checkbox" id="batch-summary" style="vertical-align:middle; margin-left:6px;" />
             <div id="custom-buttons-list" style="margin-top:6px;width:100%;"></div>
         </div>
     <div class="row" id="dev-panel" style="display:none;">
@@ -273,6 +275,12 @@
       <div class="panel-header" onclick="togglePanel('map')">
         <span>Map</span>
         <span class="panel-toggle">▼</span>
+      </div>
+      <div style="padding:8px 12px; border-bottom:1px solid var(--border); background:var(--panel-bg);">
+        <label style="font-size:12px; display:flex; align-items:center; gap:6px; cursor:pointer;">
+          <input type="checkbox" id="show-minimap-toggle" checked style="cursor:pointer;" />
+          <span>Display map on move</span>
+        </label>
       </div>
       <div class="panel-content" id="map-content">
         Use 'map' command to update
@@ -375,6 +383,18 @@ window.addEventListener('DOMContentLoaded', () => {
   if (fontSize) {
     document.documentElement.style.setProperty('--font-size', fontSize);
   }
+  
+  // Restore minimap toggle state
+  const minimapToggle = document.getElementById('show-minimap-toggle');
+  if (minimapToggle) {
+    const minimapState = localStorage.getItem('wilds_show_minimap');
+    if (minimapState !== null) {
+      minimapToggle.checked = JSON.parse(minimapState);
+    }
+    minimapToggle.addEventListener('change', () => {
+      localStorage.setItem('wilds_show_minimap', JSON.stringify(minimapToggle.checked));
+    });
+  }
 
     // Custom quick buttons persistence
     function loadButtons(){
@@ -393,13 +413,18 @@ window.addEventListener('DOMContentLoaded', () => {
             const del = document.createElement('button');
             del.textContent = '✕';
             del.style.marginLeft = '4px';
+            del.style.fontSize = '10px';
+            del.style.padding = '4px 6px';
             del.onclick = () => { const l = loadButtons(); l.splice(idx,1); saveButtons(l); renderButtons(); };
             btn.onclick = (e) => {
                 const input = document.getElementById('cmd');
                 const append = JSON.parse(localStorage.getItem('wilds_append_click')||'false');
-                if(append && input.value) input.value = input.value + ' ' + btn.dataset.cmd;
-                else input.value = btn.dataset.cmd;
-                input.focus();
+                if(append && input.value) {
+                    input.value = input.value + ' ' + btn.dataset.cmd;
+                } else {
+                    input.value = btn.dataset.cmd;
+                }
+                document.getElementById('send').click();
             };
             container.appendChild(btn);
             container.appendChild(del);
@@ -423,6 +448,13 @@ window.addEventListener('DOMContentLoaded', () => {
         const v = JSON.parse(localStorage.getItem('wilds_append_click')||'false');
         cbAppend.checked = v;
         cbAppend.onchange = () => { localStorage.setItem('wilds_append_click', JSON.stringify(cbAppend.checked)); }
+    }
+    
+    const batchSummary = document.getElementById('batch-summary');
+    if(batchSummary){
+        const v = JSON.parse(localStorage.getItem('wilds_batch_summary')||'false');
+        batchSummary.checked = v;
+        batchSummary.onchange = () => { localStorage.setItem('wilds_batch_summary', JSON.stringify(batchSummary.checked)); }
     }
 
     renderButtons();
@@ -451,28 +483,70 @@ send_btn = document.getElementById("send")
 DEBUG_COMBAT = False
 VERBOSE_UI = False
 
-# CHANGE: bounded repeat helper (cap=10, partials)
-def _run_repeated(game, n, fn):
+# CHANGE: bounded repeat helper (cap=10, partials) with batch summarization
+def _run_repeated(game, n, fn, cmd_name="action"):
     try:
         count = max(1, min(int(n or 1), 10))
     except Exception:
         count = 1
+    
+    # Check if batch summary mode is enabled
+    use_summary = False
+    try:
+        use_summary = JSON.parse(localStorage.getItem('wilds_batch_summary') or 'false')
+    except Exception:
+        pass
+    
+    # Track results for summary
+    results = {}
     done = 0
+    
     for _ in range(count):
         ok = False
+        
+        # Capture output if in summary mode
+        if use_summary and count > 1:
+            # Store current materials count before action
+            mats_before = {}
+            if hasattr(game, "_p3") and "mats" in game._p3:
+                mats_before = dict(game._p3["mats"])
+        
         try:
             ok = bool(fn())
         except Exception:
             ok = False
+        
         if not ok:
             break
+        
+        # Track what was gained in summary mode
+        if use_summary and count > 1:
+            if hasattr(game, "_p3") and "mats" in game._p3:
+                mats_after = game._p3["mats"]
+                for mat, qty in mats_after.items():
+                    gained = qty - mats_before.get(mat, 0)
+                    if gained > 0:
+                        results[mat] = results.get(mat, 0) + gained
+        
         done += 1
+    
+    # Display summary if enabled and multiple actions
     if count > 1:
-        # Use game.say so output goes to the game console
-        try:
-            game.say(f"Performed {done}/{count}.")
-        except Exception:
-            println(f"Performed {done}/{count}.")
+        if use_summary and results:
+            try:
+                game.say(f"Performed {done}/{count}")
+                game.say("Found:")
+                for mat, qty in sorted(results.items()):
+                    game.say(f"  {qty}× {mat.title()}")
+            except Exception:
+                println(f"Performed {done}/{count}.")
+        else:
+            # Verbose mode or no results - just show count
+            try:
+                game.say(f"Performed {done}/{count}.")
+            except Exception:
+                println(f"Performed {done}/{count}.")
+    
     return done
 
 # Track if user has manually scrolled
@@ -645,6 +719,8 @@ class Game:
         self.rng = random.Random(42)
         self.cur_room: str = ""
         self._built = False
+        # Track action history per room: {room_id: {action: 'success'/'failed'}}
+        self.action_history: Dict[str, Dict[str, str]] = {}
         self._build()
         self._post_init_extensions()
         self._init_positions()
@@ -705,7 +781,7 @@ class Game:
         self._built = True
 
     def _post_init_extensions(self):
-        for fname in ("part2_post_init", "part3_post_init", "part4_post_init", "part5_post_init", "part6_post_init", "part7_post_init", "part8_post_init", "part9_post_init", "part10_post_init", "part11_post_init", "part12_post_init", "p13_post_init", "part14_post_init"):
+        for fname in ("part2_post_init", "part3_post_init", "part4_post_init", "part5_post_init", "part6_post_init", "part7_post_init", "part8_post_init", "part9_post_init", "part10_post_init", "part11_post_init", "part12_post_init", "p13_post_init", "part14_post_init", "part15_post_init", "part16_post_init"):
             fn = globals().get(fname)
             if callable(fn):
                 try:
@@ -734,6 +810,14 @@ class Game:
         if "wilds_post" in self.world.rooms: self.pos["wilds_post"] = (5, 1)
         if "wilds_tower" in self.world.rooms: self.pos["wilds_tower"] = (3, -1)
         if "wilds_hut" in self.world.rooms: self.pos["wilds_hut"] = (3, 1)
+        
+        # Part 15 expansion locations
+        if "wilds_marsh" in self.world.rooms: self.pos["wilds_marsh"] = (4, 2)
+        if "wilds_spring" in self.world.rooms: self.pos["wilds_spring"] = (5, 2)
+        if "wilds_ridge" in self.world.rooms: self.pos["wilds_ridge"] = (6, 0)
+        if "wilds_mine2" in self.world.rooms: self.pos["wilds_mine2"] = (7, 0)
+        if "wilds_tower2" in self.world.rooms: self.pos["wilds_tower2"] = (6, -1)
+        if "wilds_camp2" in self.world.rooms: self.pos["wilds_camp2"] = (6, 1)
 
     def say(self, msg: str, clickable=None) -> None:
         println(msg, clickable)
@@ -789,6 +873,14 @@ class Game:
 
     def _show_mini_map(self):
         """Show compact map after movement"""
+        # Check if minimap display is enabled
+        try:
+            show_minimap = JSON.parse(localStorage.getItem('wilds_show_minimap') or 'true')
+            if not show_minimap:
+                return
+        except Exception:
+            pass
+        
         if not hasattr(self, "pos") or not self.pos:
             return
         
@@ -881,7 +973,7 @@ class Game:
             map_html += "|" + line + "|<br>"
         map_html += border + "<br>"
         map_html += f"You are at: {self.room().name}<br>"
-        map_html += "Legend: @ you, · visited, ? known"
+        map_html += "Legend: @ you, · visited, ? unknown"
         
         update_panel("map", map_html)
         # Only print ascii map to main console when verbose UI is enabled
@@ -891,7 +983,7 @@ class Game:
                 self.say("|" + line + "|")
             self.say(border)
             self.say(f"You are at: {self.room().name}")
-            self.say("Legend: @ you, · visited, ? known (unvisited), blank = off-map")
+            self.say("Legend: @ you, · visited, ? unknown, blank = off-map")
 
     def talk(self, who: str) -> None:
         if who.lower() == "caretaker" and self.cur_room == "sanctum":
@@ -937,7 +1029,16 @@ class Game:
                 # Track achievements
                 if hasattr(self, "_p8"):
                     _p8_unlock(self, "first_steps")
-                    _p8_progress(self, "treasure_hunter", 1)
+                    # Track unique items for treasure hunter
+                    if "treasure_hunter" in self._p8["achievements"]:
+                        th = self._p8["achievements"]["treasure_hunter"]
+                        if "unique_items" not in th:
+                            th["unique_items"] = []
+                        if it.id not in th["unique_items"]:
+                            th["unique_items"].append(it.id)
+                            th["progress"] = len(th["unique_items"])
+                            if th["progress"] >= th["goal"]:
+                                _p8_unlock(self, "treasure_hunter")
                 
                 return
         self.say("No such item here.")
@@ -1139,6 +1240,11 @@ class Game:
         self.say(f"💰 Gold: {gold}")
         inv_html += f"💰 Gold: {gold}<br>"
         
+        # Show armor status if equipped
+        if hasattr(self.player, "armor") and self.player.armor == "leather":
+            self.say("🛡️ Armor: Leather Armor (equipped, -25% damage)")
+            inv_html += "🛡️ Armor: Leather Armor (equipped, -25% damage)<br>"
+        
         if not items and not mats and not bandages and not consumables:
             self.say("Inventory: (empty)")
             inv_html += "Inventory: Empty"
@@ -1175,6 +1281,11 @@ class Game:
         gold = p3.get("gold", 0) if p3 else 0
 
         inv_html = f"💰 Gold: {gold}<br>"
+        
+        # Show armor in panel
+        if hasattr(self.player, "armor") and self.player.armor == "leather":
+            inv_html += "🛡️ Armor: Leather Armor (-25% dmg)<br>"
+        
         if items:
             inv_html += "Items: " + ", ".join(it.name for it in items) + "<br>"
         if consumables:
@@ -1247,6 +1358,67 @@ class Game:
         self.say(f"XP: {xp} | To next: {need} | Progress: {pct}%")
         self.say("Earn XP from combat, quests, and discovering new places.")
 
+    def track_action(self, action: str, success: bool) -> None:
+        """Track whether an action succeeded or failed in the current room"""
+        room_id = self.cur_room
+        if room_id not in self.action_history:
+            self.action_history[room_id] = {}
+        self.action_history[room_id][action] = 'success' if success else 'failed'
+    
+    def cmd_history(self) -> None:
+        """Show action history for current room"""
+        room_id = self.cur_room
+        room_name = self.room().name
+        
+        # Define all possible actions by room context
+        room = self.room()
+        all_actions = []
+        
+        # Context-dependent actions
+        if "lake" in room_id or "water" in room.desc.lower():
+            all_actions.extend(["fish", "dive"])
+        if "mine" in room_id or "cave" in room.desc.lower() or "rock" in room.desc.lower():
+            all_actions.extend(["mine"])
+        if any(k in (room.name + " " + room.desc).lower() for k in ["damp", "cellar", "cave", "ruin", "wet"]):
+            all_actions.extend(["harvest"])
+        if "tower" in room_id:
+            all_actions.append("climb")
+        if hasattr(self, "_p5") and self._p5.get("encounter"):
+            all_actions.extend(["attack", "defend", "heal"])
+        
+        # Universal actions
+        all_actions.extend(["talk", "forage", "hunt", "search", "look", "take", "drop", "use"])
+        
+        # Get history for this room
+        history = self.action_history.get(room_id, {})
+        
+        # Categorize actions
+        success = [a for a in all_actions if history.get(a) == 'success']
+        failed = [a for a in all_actions if history.get(a) == 'failed']
+        untried = [a for a in all_actions if a not in history]
+        
+        # Remove duplicates and sort
+        success = sorted(list(set(success)))
+        failed = sorted(list(set(failed)))
+        untried = sorted(list(set(untried)))
+        
+        self.say(f"\n=== Action History: {room_name} ===")
+        
+        if success:
+            success_links = [f'<span class="clickable" data-cmd="{a}">{a}</span>' for a in success]
+            self.say("✓ Success: " + ", ".join(success), clickable=success)
+        
+        if failed:
+            failed_links = [f'<span class="clickable" data-cmd="{a}">{a}</span>' for a in failed]
+            self.say("✗ Failed: " + ", ".join(failed), clickable=failed)
+        
+        if untried:
+            untried_links = [f'<span class="clickable" data-cmd="{a}">{a}</span>' for a in untried]
+            self.say("? Untried: " + ", ".join(untried), clickable=untried)
+        
+        if not success and not failed and not untried:
+            self.say("No actions recorded for this room yet.")
+
     def help(self) -> None:
         help_text = """
 === NAVIGATION ===
@@ -1275,7 +1447,7 @@ unlock - Unlock gates (auto-uses key)
 use [item] - Use an item (key, apple, bandage, potion)
 
 === CRAFTING ===
-craft [item] - Craft an item (e.g., healing potion, armor)
+craft [item] - Craft an item (e.g., lesser potion, armor)
 forage [n] - Gather herbs/fiber (optional: repeat n times)
 recipes - Show all craftable items and requirements
 xp/exp - Show current XP and progress to next level
@@ -1309,6 +1481,7 @@ talk [npc] - Talk to NPC (auto if only one in room)
 achievements - View achievement progress
 bestiary - List discovered creatures
 help - Show this help
+history - Show action history for current room (success/failed/untried)
 load - Load saved game
 lore [name] - View info about room/items/NPCs/creatures
 quit - Exit game
@@ -1345,6 +1518,11 @@ test - Run automated tests
             except:
                 pass
 
+        # Decrement gather cooldown for non-gathering actions
+        if hasattr(self, "_p3") and cmd not in ("forage", "fish", "mine", "harvest"):
+            if self._p3.get("gather_cooldown", 0) > 0:
+                self._p3["gather_cooldown"] -= 1
+        
         ext = globals().get("ext_handle_command")
         if callable(ext):
             try:
@@ -1437,6 +1615,9 @@ test - Run automated tests
             return True
         if cmd == "stats":
             self.stats()
+            return True
+        if cmd == "history":
+            self.cmd_history()
             return True
         if cmd == "save":
             save_game(self)
@@ -1608,6 +1789,14 @@ def p2_ext_handle_command(cmd, args, game):
             game.say("You rest and recover 2 HP.")
         else:
             game.say("You rest, but you're already at full health.")
+        # Resting fully refreshes short gather cooldowns so the player can
+        # forage/mine/fish again without needing extra non-gather actions.
+        try:
+            if hasattr(game, "_p3") and game._p3.get("gather_cooldown", 0) > 0:
+                game._p3["gather_cooldown"] = 0
+                game.say("(You feel rested. You can gather again.)")
+        except Exception:
+            pass
         return True
 
     if prev and prev(cmd, args, game):
@@ -1632,6 +1821,7 @@ def part3_post_init(game):
         "gold": 5,
         "flags": {},
         "prices": {"bandage": 3, "apple": 1},
+        "gather_cooldown": 0,
     }
     _ = game._p3["rng"].random()
 
@@ -1639,11 +1829,20 @@ def _p3_forage(game):
     if not game or not hasattr(game, "_p3"):
         print("You poke around but find nothing.")
         return False
+    
+    # Check cooldown (requires 2 non-gathering actions between forages)
+    if game._p3.get("gather_cooldown", 0) > 0:
+        game.say(f"You need to rest before foraging again. (Wait {game._p3['gather_cooldown']} more actions)")
+        return True
+    
     rng = game._p3["rng"]
     found = "herb" if rng.random() < 0.5 else "fiber"
     game._p3["mats"][found] = game._p3["mats"].get(found, 0) + 1
     game.say(f"You forage and find 1 {found}.")
     game._update_inv_panel()
+    
+    # Set cooldown
+    game._p3["gather_cooldown"] = 2
     
     # Track achievements
     if hasattr(game, "_p8"):
@@ -1775,6 +1974,9 @@ def _p5_spawn(game, forced=False):
     game.say(f"A {name} emerges!", clickable=[name])
     if first_time:
         game.say("(New entry added to your bestiary.)")
+        # Check Lore Keeper achievement when discovering new creatures
+        if hasattr(game, "_p8"):
+            _p8_check_lore(game)
 
 def _p5_end_encounter(game):
     p5 = getattr(game, "_p5", None)
@@ -2276,7 +2478,13 @@ def _p6_eval_requirements(game, need: dict) -> bool:
         return False
     mats = p3.get("mats", {})
     for k, v in need.items():
-        if mats.get(k, 0) < v:
+        have = mats.get(k, 0)
+        # Also check inventory for items
+        if have < v:
+            for it in game.player.inv.values():
+                if getattr(it, "id", "") == k:
+                    have += 1
+        if have < v:
             return False
     return True
 
@@ -2285,7 +2493,22 @@ def _p6_consume_requirements(game, need: dict) -> None:
     if not p3:
         return
     for k, v in need.items():
-        p3["mats"][k] = max(0, p3["mats"].get(k, 0) - v)
+        # First consume from materials
+        mats_available = p3["mats"].get(k, 0)
+        consumed_from_mats = min(mats_available, v)
+        p3["mats"][k] = max(0, mats_available - consumed_from_mats)
+        
+        # If we still need more, consume from inventory
+        remaining_needed = v - consumed_from_mats
+        if remaining_needed > 0:
+            items_to_remove = []
+            for slot, it in game.player.inv.items():
+                if getattr(it, "id", "") == k and remaining_needed > 0:
+                    items_to_remove.append(slot)
+                    remaining_needed -= 1
+            # Remove the items from inventory
+            for slot in items_to_remove:
+                del game.player.inv[slot]
 
 def _p6_apply_reward(game, reward: dict) -> None:
     if "gold" in reward and getattr(game, "_p3", None) is not None:
@@ -2387,7 +2610,7 @@ def _p6_cmd_talk(game, args) -> bool:
         
         # Track micro-goals
         if hasattr(game, "_p12"):
-            _p12_track_action(game, "talk")
+            _p12_track_action(game, "talk", "Caretaker")
         
         return True
     return False
@@ -2494,7 +2717,6 @@ def _p6_cmd_turnin(game, args) -> bool:
             if hasattr(game, "_p8"):
                 _p8_progress(game, "quest_master", 1)
                 _p8_check_gold(game)
-                _p8_check_lore(game)
             
             # Track micro-goals
             if hasattr(game, "_p12"):
@@ -2765,53 +2987,123 @@ def _p7_cmd_fish(game, args) -> bool:
     if not game:
         print("You cast into the void.")
         return True
-    if not _p7_here(game, "wilds_lake"):
-        game.say("You can only fish at the Moonlit Lake.")
+    if not _p7_here(game, "wilds_lake", "lake_depths", "sunken_shrine"):
+        game.say("You can only fish at the Moonlit Lake or its depths.")
         return True
+    
+    # Check cooldown
+    if hasattr(game, "_p3") and game._p3.get("gather_cooldown", 0) > 0:
+        game.say(f"You need to rest before fishing again. (Wait {game._p3['gather_cooldown']} more actions)")
+        return True
+    
     rng = _p7_rng(game)
-    roll = rng.random()
-    if roll < 0.2:
-        game.say("Nothing bites.")
-    elif roll < 0.95:
-        _p7_add_mat(game, "fish", 1)
-        game.say("You catch a small fish! (+1 fish)")
-        game._update_inv_panel()
-        
-        # Track achievements
-        if hasattr(game, "_p8"):
-            _p8_progress(game, "master_angler", 1)
-        
-        # Track micro-goals
-        if hasattr(game, "_p12"):
-            _p12_track_action(game, "gather")
+    
+    # Lake depths and sunken shrine yield pearls
+    if _p7_here(game, "lake_depths", "sunken_shrine"):
+        roll = rng.random()
+        if roll < 0.15:
+            game.say("Nothing interesting here.")
+        elif roll < 0.6:
+            _p7_add_mat(game, "fish", 1)
+            game.say("You catch a deep-water fish. (+1 fish)")
+            game._update_inv_panel()
+            if hasattr(game, "_p3"):
+                game._p3["gather_cooldown"] = 2
+            if hasattr(game, "_p12"):
+                _p12_track_action(game, "gather")
+        else:
+            _p7_add_mat(game, "pearl", 1)
+            game.say("You find a luminous pearl! (+1 pearl)")
+            game._update_inv_panel()
+            if hasattr(game, "_p3"):
+                game._p3["gather_cooldown"] = 2
+            if hasattr(game, "_p12"):
+                _p12_track_action(game, "gather")
     else:
-        game.player.add_item(Item("lost_ring", "Lost Ring", "An old ring dredged from the depths.", usable=False))
-        game.say("Glint! You dredge up a Lost Ring.")
-        game._update_inv_panel()
+        # Regular lake fishing
+        roll = rng.random()
+        if roll < 0.2:
+            game.say("Nothing bites.")
+        elif roll < 0.95:
+            _p7_add_mat(game, "fish", 1)
+            game.say("You catch a small fish! (+1 fish)")
+            game._update_inv_panel()
+            
+            # Set cooldown
+            if hasattr(game, "_p3"):
+                game._p3["gather_cooldown"] = 2
+            
+            # Track achievements
+            if hasattr(game, "_p8"):
+                _p8_progress(game, "master_angler", 1)
+            
+            # Track micro-goals
+            if hasattr(game, "_p12"):
+                _p12_track_action(game, "gather")
+        else:
+            game.player.add_item(Item("lost_ring", "Lost Ring", "An old ring dredged from the depths.", usable=False))
+            game.say("Glint! You dredge up a Lost Ring.")
+            game._update_inv_panel()
     return True
 
 def _p7_cmd_mine(game, args) -> bool:
     if not game:
         print("You swing at nothing.")
         return True
-    if not _p7_here(game, "wilds_mine"):
+    if not _p7_here(game, "wilds_mine", "deep_mine", "crystal_cave"):
         game.say("You need a rock face to mine.")
         return True
+    
+    # Check cooldown
+    if hasattr(game, "_p3") and game._p3.get("gather_cooldown", 0) > 0:
+        game.say(f"You need to rest before mining again. (Wait {game._p3['gather_cooldown']} more actions)")
+        return True
+    
     rng = _p7_rng(game)
-    if rng.random() < 0.6:
-        _p7_add_mat(game, "ore", 1)
-        game.say("You chip out a chunk of ore. (+1 ore)")
-        game._update_inv_panel()
-        
-        # Track achievements
-        if hasattr(game, "_p8"):
-            _p8_progress(game, "miner", 1)
-        
-        # Track micro-goals
-        if hasattr(game, "_p12"):
-            _p12_track_action(game, "gather")
+    
+    # Deep mine yields coal, crystal cave yields crystal shards
+    if _p7_here(game, "deep_mine"):
+        if rng.random() < 0.6:
+            _p7_add_mat(game, "coal", 1)
+            game.say("You chip out a chunk of coal. (+1 coal)")
+            game._update_inv_panel()
+            if hasattr(game, "_p3"):
+                game._p3["gather_cooldown"] = 2
+            if hasattr(game, "_p12"):
+                _p12_track_action(game, "gather")
+        else:
+            game.say("The coal seam is hard to reach here.")
+    elif _p7_here(game, "crystal_cave"):
+        if rng.random() < 0.5:
+            _p7_add_mat(game, "crystal_shard", 1)
+            game.say("You carefully extract a crystal shard. (+1 crystal shard)")
+            game._update_inv_panel()
+            if hasattr(game, "_p3"):
+                game._p3["gather_cooldown"] = 2
+            if hasattr(game, "_p12"):
+                _p12_track_action(game, "gather")
+        else:
+            game.say("The crystals are too fragile here.")
     else:
-        game.say("The vein is stubborn here.")
+        # Regular mine yields ore
+        if rng.random() < 0.6:
+            _p7_add_mat(game, "ore", 1)
+            game.say("You chip out a chunk of ore. (+1 ore)")
+            game._update_inv_panel()
+            
+            # Set cooldown
+            if hasattr(game, "_p3"):
+                game._p3["gather_cooldown"] = 2
+            
+            # Track achievements
+            if hasattr(game, "_p8"):
+                _p8_progress(game, "miner", 1)
+            
+            # Track micro-goals
+            if hasattr(game, "_p12"):
+                _p12_track_action(game, "gather")
+        else:
+            game.say("The vein is stubborn here.")
     return True
 
 def _p7_cmd_harvest(game, args) -> bool:
@@ -2823,9 +3115,9 @@ def _p7_cmd_harvest(game, args) -> bool:
     loc_text = (r.name + " " + r.desc + " " + (r.id or "")).lower()
     harvest_keywords = ["damp", "cellar", "cave", "mine", "ruin", "wet", "grotto", "spring"]
     if not any(k in loc_text for k in harvest_keywords):
-        # Give a helpful biome hint
-        HINT = "Glowcaps grow in damp places (cellars, caves, mines, wet ruins). Try searching those areas."
-        game.say(HINT)
+        # Give a helpful biome hint with specific locations
+        game.say("Nothing to harvest here. Glowcaps grow in damp places.")
+        game.say("Try: Sunken Cellar (south of Sanctum), Abandoned Mine, or similar damp locations.")
         return True
     rng = _p7_rng(game)
     # Initialize harvest streak counter
@@ -2837,15 +3129,20 @@ def _p7_cmd_harvest(game, args) -> bool:
         _p7_add_mat(game, "glowcap", 1)
         game.say("You harvest a pale glowcap. (+1 glowcap)")
         game._update_inv_panel()
-        # Track streak and maybe spawn a minor encounter
+        # Track streak and spawn encounter with guaranteed trigger
         game._p7_harvest_streak += 1
-        # CHANGE: On 3-10 harvests trigger minor encounter with small chance
-        if game._p7_harvest_streak >= rng.randint(3, 10):
+        # CHANGE: Deterministic encounter trigger - guaranteed after 10 harvests
+        if game._p7_harvest_streak >= 10:
             game._p7_harvest_streak = 0
-            # Simple minor encounter
-            if rng.random() < 0.4:
+            game.say("As you harvest, a small thorn sprite stirs nearby! Prepare to defend yourself.")
+            # spawn a lightweight encounter (informational only)
+            if hasattr(game, "_p5"):
+                game._p5["encounter"] = "thorn_sprite"
+        elif game._p7_harvest_streak >= 5:
+            # Random chance after 5 harvests (60% chance)
+            if rng.random() < 0.6:
+                game._p7_harvest_streak = 0
                 game.say("As you harvest, a small thorn sprite stirs nearby! Prepare to defend yourself.")
-                # spawn a lightweight encounter (informational only)
                 if hasattr(game, "_p5"):
                     game._p5["encounter"] = "thorn_sprite"
     else:
@@ -3067,7 +3364,7 @@ def _p7_cmd_talk(game, args) -> bool:
         
         # Track micro-goals
         if hasattr(game, "_p12"):
-            _p12_track_action(game, "talk")
+            _p12_track_action(game, "talk", "Trader")
         
         return True
     if who in ("ranger", "the ranger") and _p7_here(game, "wilds_camp"):
@@ -3079,7 +3376,7 @@ def _p7_cmd_talk(game, args) -> bool:
         
         # Track micro-goals
         if hasattr(game, "_p12"):
-            _p12_track_action(game, "talk")
+            _p12_track_action(game, "talk", "Ranger")
         
         return True
     if who in ("hermit", "the hermit") and _p7_here(game, "wilds_hut"):
@@ -3091,7 +3388,7 @@ def _p7_cmd_talk(game, args) -> bool:
         
         # Track micro-goals
         if hasattr(game, "_p12"):
-            _p12_track_action(game, "talk")
+            _p12_track_action(game, "talk", "Hermit")
         
         return True
     return False
@@ -3150,7 +3447,6 @@ def _p7_cmd_turnin(game, args) -> bool:
                 if hasattr(game, "_p8"):
                     _p8_progress(game, "quest_master", 1)
                     _p8_check_gold(game)
-                    _p8_check_lore(game)
 
                 # Track micro-goals
                 if hasattr(game, "_p12"):
@@ -3493,6 +3789,7 @@ def _p9_dive(game):
     if "lake_depths" in game.world.rooms["wilds_lake"].neighbors:
         game.cur_room = "lake_depths"
         game.look()
+        game.say("Hint: You can fish here for pearls using 'fish'.")
         _p8_track_room(game)
         game._show_mini_map()
     else:
@@ -3521,6 +3818,7 @@ def _p9_descend(game):
     if "deep_mine" in game.world.rooms["wilds_mine"].neighbors:
         game.cur_room = "deep_mine"
         game.look()
+        game.say("Hint: You can mine for coal here using 'mine'. Go east to find crystal shards.")
         _p8_track_room(game)
         game._show_mini_map()
     else:
@@ -3561,12 +3859,11 @@ def part10_post_init(game):
     
     game._p10 = {
         "recipes": {
-            "healing_potion": {
-                "name": "Healing Potion",
+            "lesser_potion": {
+                "name": "Lesser Potion",
                 "need": {"herb": 3, "glowcap": 1},
-                # CHANGE: Crafting now makes a lesser potion by default
                 "makes": "potion_small",
-                "desc": "Lesser Potion - Restores 8 HP when used",
+                "desc": "Restores 8 HP when used (crafted version)",
             },
             "torch": {
                 "name": "Torch",
@@ -4011,37 +4308,46 @@ def run_tests(game):
 # ===========================
 
 def save_game(game):
-    """Save game state to localStorage"""
-    # CHANGE: save includes armor & cooldowns
-    state = {
-        "cur_room": game.cur_room,
-        "player": {
-            "hp": game.player.hp,
-            "max_hp": game.player.max_hp,
-            "armor": getattr(game.player, "armor", None),
-            "cooldowns": getattr(game.player, "cooldowns", {}),
-        },
-        "player_inv": {k: {"id": v.id, "name": v.name, "desc": v.desc} for k, v in game.player.inv.items()},
-        "_p2": game._p2 if hasattr(game, "_p2") else None,
-        "_p3": game._p3 if hasattr(game, "_p3") else None,
-        "_p6": game._p6 if hasattr(game, "_p6") else None,
-        "_p5": {"seen": list(game._p5.get("seen", []))} if hasattr(game, "_p5") else None,
-        "room_seen": {rid: r.seen for rid, r in game.world.rooms.items()},
-    }
+    """Save game state to localStorage with robust error handling"""
+    try:
+        # CHANGE: save includes armor & cooldowns
+        state = {
+            "cur_room": game.cur_room,
+            "player": {
+                "hp": game.player.hp,
+                "max_hp": game.player.max_hp,
+                "armor": getattr(game.player, "armor", None),
+                "cooldowns": getattr(game.player, "cooldowns", {}),
+            },
+            "player_inv": {k: {"id": v.id, "name": v.name, "desc": v.desc} for k, v in game.player.inv.items()},
+            "_p2": game._p2 if hasattr(game, "_p2") else None,
+            "_p3": game._p3 if hasattr(game, "_p3") else None,
+            "_p6": game._p6 if hasattr(game, "_p6") else None,
+            "_p5": {"seen": list(game._p5.get("seen", []))} if hasattr(game, "_p5") else None,
+            "room_seen": {rid: r.seen for rid, r in game.world.rooms.items()},
+        }
 
-    json_str = pyjson.dumps(state)
-    localStorage.setItem("wilds_save", json_str)
-    game.say("Game saved to browser storage.")
+        json_str = pyjson.dumps(state)
+        localStorage.setItem("wilds_save", json_str)
+        game.say("✓ Game saved successfully to browser storage.")
+    except Exception as e:
+        game.say(f"✗ Save failed: {e}")
 
 def load_game(game):
-    """Load game state from localStorage"""
+    """Load game state from localStorage with validation"""
     saved = localStorage.getItem("wilds_save")
     if not saved:
-        game.say("No save file found.")
+        game.say("✗ No save found. Use 'save' to create one.")
         return
     
     try:
+        # Validate JSON
         state = pyjson.loads(str(saved))
+        
+        # Validate basic structure
+        if not isinstance(state, dict):
+            raise ValueError("Invalid save format")
+        
         game.cur_room = state.get("cur_room", game.world.start_room)
         # Restore player block
         p = state.get("player", {})
@@ -4074,12 +4380,13 @@ def load_game(game):
             if rid in game.world.rooms:
                 game.world.rooms[rid].seen = seen
 
-        game.say("Game loaded successfully.")
+        game.say("✓ Game loaded successfully.")
         game.look()
         game._update_inv_panel()
         _p6_update_quest_panel(game)
     except Exception as e:
-        game.say(f"Failed to load: {e}")
+        game.say(f"✗ Load failed: {e}")
+        game.say("Your save may be corrupted. Starting fresh is recommended.")
 
 def export_save_json():
     """Export save as downloadable JSON"""
@@ -4236,7 +4543,7 @@ def _p14_complete_tutorial(game):
     game.say("• Type 'help' to see ALL commands")
     game.say("• Talk to NPCs for quests: 'talk caretaker'")
     game.say("• Gather resources: 'forage', 'fish', 'mine'")
-    game.say("• Craft items: 'craft healing_potion'")
+    game.say("• Craft items: 'craft lesser_potion'")
     game.say("• Combat: 'attack' when you meet creatures")
     game.say("• Click on highlighted words to auto-fill commands")
     game.say("")
@@ -4425,12 +4732,611 @@ def _p11_cmd_skills(game):
         game.say(f"• Level 5: Heal")
         game.say(f"• Level 7: Defend")
 
+def part15_post_init(game):
+    """Initialize content expansion pack - new locations, NPCs, quests, creatures, items"""
+    if not game:
+        return
+    
+    import random as pyrandom
+    
+    w = game.world
+    rooms = w.rooms
+    
+    # Add 6 new locations
+    if "wilds" in rooms:
+        marsh = Room("wilds_marsh", "Glitterfen Marsh", "Reeds, glowcaps, and dragonflies shimmer over dark water.")
+        spring = Room("wilds_spring", "Moon-Spring", "A clear spring burbles from stone. The water tastes bright.")
+        ridge = Room("wilds_ridge", "Ridge Path", "A windy spine of rock overlooking the wilds.")
+        mine2 = Room("wilds_mine2", "Cragspire Mine", "Veins of ore gleam in torchlight. Struts groan softly.")
+        tower2 = Room("wilds_tower2", "Echo-song Tower", "A lichen-clad tower. Stairs curl into shadow.")
+        camp2 = Room("wilds_camp2", "Hunter's Camp", "A tidy camp with drying racks and a cookfire.")
+        
+        # Add NPCs to new locations
+        camp2.npcs.append("Rowan")
+        mine2.npcs.append("Tamsin")
+        tower2.npcs.append("Hermit")
+        camp2.npcs.append("Lysa")
+        
+        # Link new locations (avoiding conflicts with existing wilds links)
+        # Marsh connects from Ranger Camp (south of camp)
+        rooms["wilds_camp"].link("s", "wilds_marsh")
+        marsh.link("n", "wilds_camp")
+        marsh.link("e", "wilds_spring")
+        spring.link("w", "wilds_marsh")
+        
+        # Ridge connects from Abandoned Mine (east of mine)
+        rooms["wilds_mine"].link("e", "wilds_ridge")
+        ridge.link("w", "wilds_mine")
+        ridge.link("e", "wilds_mine2")
+        mine2.link("w", "wilds_ridge")
+        ridge.link("n", "wilds_tower2")
+        tower2.link("s", "wilds_ridge")
+        
+        if "wilds_lake" in rooms:
+            rooms["wilds_lake"].link("e", "wilds_camp2")
+            camp2.link("w", "wilds_lake")
+        
+        # Add rooms to world
+        for r in (marsh, spring, ridge, mine2, tower2, camp2):
+            w.add_room(r)
+    
+    # Initialize materials if _p3 exists
+    if hasattr(game, "_p3"):
+        mats = game._p3.setdefault("mats", {})
+        for mat in ("glowcap", "ore", "fish", "hide", "reed", "echo_crystal"):
+            mats.setdefault(mat, 0)
+    
+    # Add new quests if _p6 exists
+    if hasattr(game, "_p6"):
+        q = game._p6.setdefault("quests", {})
+        q.setdefault("angler_aid_plus", {
+            "title": "Angler's Aid+",
+            "state": "new",
+            "need": {"fish": 2},
+            "lore": "Rowan the Fisher needs fresh fish for a special stew recipe.",
+            "reward": {"gold": 8, "xp": 2},
+            "npc": "Rowan"
+        })
+        q.setdefault("mine_matters_plus", {
+            "title": "Mine Matters+",
+            "state": "new",
+            "need": {"ore": 2},
+            "lore": "Tamsin the Miner needs ore to demonstrate proper extraction techniques.",
+            "reward": {"gold": 10, "xp": 2},
+            "npc": "Tamsin"
+        })
+        q.setdefault("hermit_glow", {
+            "title": "Hermit's Glow",
+            "state": "new",
+            "need": {"glowcap": 3},
+            "lore": "The Hermit needs glowcaps to create an echo crystal.",
+            "reward": {"echo_crystal": 1, "xp": 10},
+            "npc": "Hermit"
+        })
+        q.setdefault("tower_beacon", {
+            "title": "Tower Beacon",
+            "state": "new",
+            "need": {},
+            "lore": "Climb the Echo-song Tower with an echo crystal to activate the beacon.",
+            "reward": {"xp": 15, "gold": 20},
+            "npc": "Hermit"
+        })
+    
+    # Add new creatures to bestiary if _p5 exists
+    if hasattr(game, "_p5"):
+        best = game._p5.setdefault("bestiary", {})
+        best.setdefault("Fen Sprite", {
+            "hp": (3, 5),
+            "lore": "A will-o'-wisp of mischief."
+        })
+        best.setdefault("Marsh Leech", {
+            "hp": (2, 4),
+            "lore": "It clings to warmth."
+        })
+        best.setdefault("Stone Beetle", {
+            "hp": (4, 6),
+            "lore": "Chitinous, fond of ore."
+        })
+        best.setdefault("River Pike", {
+            "hp": (3, 5),
+            "lore": "A flash of muscle and teeth."
+        })
+    
+    # Add new crafting recipes to part10 if it exists
+    if hasattr(game, "_p10"):
+        recipes = game._p10.setdefault("recipes", {})
+        recipes.setdefault("lesser_potion", {
+            "name": "Lesser Potion",
+            "need": {"herb": 3},
+            "makes": "potion_small",
+            "desc": "Restores 8 HP"
+        })
+        recipes.setdefault("fish_stew", {
+            "name": "Fish Stew",
+            "need": {"fish": 1, "herb": 1},
+            "makes": "fish_stew",
+            "desc": "Restores 3 HP"
+        })
+        recipes.setdefault("echo_tonic", {
+            "name": "Echo Tonic",
+            "need": {"echo_crystal": 1, "herb": 2},
+            "makes": "echo_tonic",
+            "desc": "Temporary +1 damage for 3 attacks"
+        })
+    
+    # Initialize part15 specific state
+    game._p15 = {
+        "rng": pyrandom.Random(15015),
+        "has_fishing_rod": False,
+        "has_pick_upgrade": False,
+        "echo_buff_hits": 0,
+        "visited_summit": False
+    }
+
+def _p15_cmd_fish(game, args):
+    """Extended fish command for new locations"""
+    if not game:
+        return False
+    
+    room_id = game.cur_room
+    
+    # Check if in valid fishing location (including new ones)
+    if room_id not in ("wilds_lake", "wilds_spring", "lake_depths", "sunken_shrine"):
+        return False
+    
+    # Moon-Spring fishing
+    if room_id == "wilds_spring":
+        if hasattr(game, "_p3") and game._p3.get("gather_cooldown", 0) > 0:
+            game.say(f"You need to rest before fishing again. (Wait {game._p3['gather_cooldown']} more actions)")
+            return True
+        
+        rng = game._p15.get("rng", random.Random())
+        success_rate = 0.4
+        if game._p15.get("has_fishing_rod"):
+            success_rate += 0.15
+        
+        if rng.random() < success_rate:
+            _p7_add_mat(game, "fish", 1)
+            game.say("The spring yields a small fish! (+1 fish)")
+            game._update_inv_panel()
+            if hasattr(game, "_p3"):
+                game._p3["gather_cooldown"] = 2
+            if hasattr(game, "_p12"):
+                _p12_track_action(game, "gather")
+        else:
+            game.say("Nothing bites in the clear water.")
+        return True
+    
+    return False
+
+def _p15_cmd_mine(game, args):
+    """Extended mine command for new locations"""
+    if not game:
+        return False
+    
+    room_id = game.cur_room
+    
+    # Check if in Cragspire Mine
+    if room_id != "wilds_mine2":
+        return False
+    
+    if hasattr(game, "_p3") and game._p3.get("gather_cooldown", 0) > 0:
+        game.say(f"You need to rest before mining again. (Wait {game._p3['gather_cooldown']} more actions)")
+        return True
+    
+    rng = game._p15.get("rng", random.Random())
+    success_rate = 0.6
+    if game._p15.get("has_pick_upgrade"):
+        success_rate += 0.15
+    
+    if rng.random() < success_rate:
+        _p7_add_mat(game, "ore", 1)
+        game.say("You extract a chunk of ore. (+1 ore)")
+        game._update_inv_panel()
+        if hasattr(game, "_p3"):
+            game._p3["gather_cooldown"] = 2
+        if hasattr(game, "_p8"):
+            _p8_progress(game, "miner", 1)
+        if hasattr(game, "_p12"):
+            _p12_track_action(game, "gather")
+        
+        # Rare chance to encounter Stone Beetle
+        if rng.random() < 0.2 and hasattr(game, "_p5"):
+            _p15_spawn_creature(game, "Stone Beetle")
+    else:
+        game.say("The ore vein is stubborn here.")
+    
+    return True
+
+def _p15_cmd_harvest(game, args):
+    """Extended harvest command for marsh locations"""
+    if not game:
+        return False
+    
+    room_id = game.cur_room
+    
+    # Check if in marsh or spring
+    if room_id not in ("wilds_marsh", "wilds_spring"):
+        return False
+    
+    if hasattr(game, "_p3") and game._p3.get("gather_cooldown", 0) > 0:
+        game.say(f"You need to rest before harvesting again. (Wait {game._p3['gather_cooldown']} more actions)")
+        return True
+    
+    rng = game._p15.get("rng", random.Random())
+    
+    if room_id == "wilds_marsh":
+        roll = rng.random()
+        if roll < 0.5:
+            _p7_add_mat(game, "glowcap", 1)
+            game.say("You harvest a glowing mushroom! (+1 glowcap)")
+        elif roll < 0.75:
+            _p7_add_mat(game, "reed", 1)
+            game.say("You gather a flexible reed. (+1 reed)")
+        else:
+            game.say("The marsh yields nothing useful this time.")
+        
+        game._update_inv_panel()
+        if hasattr(game, "_p3"):
+            game._p3["gather_cooldown"] = 2
+        if hasattr(game, "_p8"):
+            _p8_progress(game, "herbalist", 1)
+        if hasattr(game, "_p12"):
+            _p12_track_action(game, "gather")
+        
+        # Rare encounter chance
+        if rng.random() < 0.15 and hasattr(game, "_p5"):
+            creature = rng.choice(["Fen Sprite", "Marsh Leech"])
+            _p15_spawn_creature(game, creature)
+    
+    elif room_id == "wilds_spring":
+        if rng.random() < 0.3:
+            _p7_add_mat(game, "herb", 1)
+            game.say("You find a fresh herb near the spring. (+1 herb)")
+            game._update_inv_panel()
+            if hasattr(game, "_p3"):
+                game._p3["gather_cooldown"] = 2
+            if hasattr(game, "_p12"):
+                _p12_track_action(game, "gather")
+        else:
+            game.say("The spring area has little to harvest.")
+    
+    return True
+
+def _p15_spawn_creature(game, creature_name):
+    """Helper to spawn a specific creature"""
+    if not hasattr(game, "_p5"):
+        return
+    
+    p5 = game._p5
+    if p5.get("encounter") is not None:
+        return
+    
+    if creature_name in p5["bestiary"]:
+        hp_low, hp_high = p5["bestiary"][creature_name]["hp"]
+        hp = p5["rng"].randint(hp_low, hp_high)
+        p5["encounter"] = {"name": creature_name, "hp": hp, "max_hp": hp}
+        first_time = creature_name not in p5.get("seen", set())
+        p5.setdefault("seen", set()).add(creature_name)
+        game.say(f"A {creature_name} appears!", clickable=[creature_name])
+        if first_time:
+            game.say("(New entry added to your bestiary.)")
+            if hasattr(game, "_p8"):
+                _p8_check_lore(game)
+
+def _p15_cmd_climb(game, args):
+    """Climb command for Echo-song Tower"""
+    if not game:
+        return True
+    
+    if game.cur_room != "wilds_tower2":
+        game.say("There's nothing to climb here.")
+        return True
+    
+    game.say("You ascend the winding stairs of Echo-song Tower...")
+    game.say("The view from the summit is breathtaking. Wilds stretch in every direction.")
+    
+    # Check if carrying echo crystal for Tower Beacon quest
+    if hasattr(game, "_p3"):
+        has_crystal = game._p3.get("mats", {}).get("echo_crystal", 0) > 0
+        if has_crystal and hasattr(game, "_p6"):
+            quest = game._p6["quests"].get("tower_beacon", {})
+            if quest.get("state") in ("new", "offered", "accepted"):
+                game.say("")
+                game.say("Your echo crystal begins to pulse with energy!")
+                game.say("The tower's beacon flares to life, casting ethereal light across the wilds.")
+                quest["state"] = "completed"
+                game.say("✓ Quest complete: Tower Beacon")
+                if hasattr(game, "_p2"):
+                    game._p2["xp"] = game._p2.get("xp", 0) + 15
+                    game.say("(+15 XP)")
+                if hasattr(game, "_p3"):
+                    game._p3["gold"] = game._p3.get("gold", 0) + 20
+                    game.say("(+20 gold)")
+    
+    if not game._p15.get("visited_summit"):
+        game._p15["visited_summit"] = True
+        if hasattr(game, "_p2"):
+            game._p2["xp"] = game._p2.get("xp", 0) + 3
+            game.say("(+3 XP for discovering the summit)")
+    
+    return True
+
+def _p15_cmd_travel(game, args):
+    """Fast travel between key locations for gold"""
+    if not game or not args:
+        game.say("Travel where? Available: sanctum, camp, lake")
+        return True
+    
+    destination = args[0].lower()
+    
+    # Map destinations
+    dest_map = {
+        "sanctum": "sanctum",
+        "camp": "wilds_camp2",
+        "hunter": "wilds_camp2",
+        "lake": "wilds_lake",
+        "moonlit": "wilds_lake"
+    }
+    
+    dest_room = dest_map.get(destination)
+    if not dest_room:
+        game.say("Unknown destination. Try: sanctum, camp, or lake")
+        return True
+    
+    if game.cur_room == dest_room:
+        game.say("You're already here!")
+        return True
+    
+    # Check if destination exists
+    if dest_room not in game.world.rooms:
+        game.say("That location is not yet accessible.")
+        return True
+    
+    # Cost: 10 gold
+    cost = 10
+    if hasattr(game, "_p3"):
+        gold = game._p3.get("gold", 0)
+        if gold < cost:
+            game.say(f"Fast travel costs {cost} gold. You only have {gold}.")
+            return True
+        
+        game._p3["gold"] -= cost
+        game.cur_room = dest_room
+        game.say(f"You travel swiftly to {game.room().name}. (-{cost} gold)")
+        game.say(game.room().desc)
+        game._show_mini_map()
+    else:
+        game.say("Fast travel is not available yet.")
+    
+    return True
+
+def _p15_npc_dialogue(game, npc_name):
+    """Handle dialogue for new NPCs"""
+    if not hasattr(game, "_p6"):
+        return False
+    
+    if npc_name == "Rowan":
+        quest = game._p6["quests"].get("angler_aid_plus", {})
+        state = quest.get("state", "new")
+        
+        if state == "new":
+            game.say("Rowan: 'Ah, a fellow wanderer! I'm preparing a special fish stew.'")
+            game.say("Rowan: 'If you bring me 2 fish, I'll share the recipe and reward you well.'")
+            opts = [
+                ("I'll help you.", "rowan_accept"),
+                ("Maybe later.", "rowan_bye")
+            ]
+            _p6_show_dialog(game, "Rowan", opts)
+        elif state == "accepted":
+            game.say("Rowan: 'Catch me 2 fish from the lake or spring.'")
+        elif state == "completed":
+            game.say("Rowan: 'Do you have those fish for me?'")
+            opts = [
+                ("Yes, here they are.", "rowan_turnin"),
+                ("Not yet.", "rowan_bye")
+            ]
+            _p6_show_dialog(game, "Rowan", opts)
+        else:
+            game.say("Rowan: 'Thanks for the fish! The stew was excellent.'")
+        return True
+    
+    elif npc_name == "Tamsin":
+        quest = game._p6["quests"].get("mine_matters_plus", {})
+        state = quest.get("state", "new")
+        
+        if state == "new":
+            game.say("Tamsin: 'Mining ore is an art. Let me show you proper technique.'")
+            game.say("Tamsin: 'Bring me 2 ore, and I'll give you an upgrade token for your pick.'")
+            opts = [
+                ("Sounds good.", "tamsin_accept"),
+                ("No thanks.", "tamsin_bye")
+            ]
+            _p6_show_dialog(game, "Tamsin", opts)
+        elif state == "accepted":
+            game.say("Tamsin: 'Find 2 ore from the Cragspire Mine to the east.'")
+        elif state == "completed":
+            game.say("Tamsin: 'Got that ore for me?'")
+            opts = [
+                ("Here it is.", "tamsin_turnin"),
+                ("Still working on it.", "tamsin_bye")
+            ]
+            _p6_show_dialog(game, "Tamsin", opts)
+        else:
+            game.say("Tamsin: 'Your pick should work better now! Happy mining.'")
+        return True
+    
+    elif npc_name == "Hermit":
+        quest = game._p6["quests"].get("hermit_glow", {})
+        state = quest.get("state", "new")
+        
+        if state == "new":
+            game.say("Hermit: 'The glowcaps of the marsh hold special properties...'")
+            game.say("Hermit: 'Bring me 3 glowcaps, and I'll craft an echo crystal for you.'")
+            opts = [
+                ("I'll gather them.", "hermit_accept"),
+                ("Not interested.", "hermit_bye")
+            ]
+            _p6_show_dialog(game, "Hermit", opts)
+        elif state == "accepted":
+            game.say("Hermit: 'Harvest 3 glowcaps from Glitterfen Marsh, south of the wilds.'")
+        elif state == "completed":
+            game.say("Hermit: 'Do you have the glowcaps?'")
+            opts = [
+                ("Yes, here.", "hermit_turnin"),
+                ("Not yet.", "hermit_bye")
+            ]
+            _p6_show_dialog(game, "Hermit", opts)
+        else:
+            game.say("Hermit: 'The echo crystal serves you well, I hope.'")
+            game.say("Hermit: 'Try climbing this tower with it...'")
+        return True
+    
+    elif npc_name == "Lysa":
+        game.say("Lysa: 'Welcome to Hunter's Camp! I buy and sell goods here.'")
+        game.say("Lysa: 'Use 'shop' to see what I have, or 'sell [item]' to trade.'")
+        return True
+    
+    return False
+
 def p15_ext_handle_command(cmd, args, game):
     prev = P15_PREV_EXT if P15_PREV_EXT is not p15_ext_handle_command else None
     
     if cmd == "skills":
         _p11_cmd_skills(game)
         return True
+    
+    if cmd == "fish":
+        if _p15_cmd_fish(game, args):
+            return True
+    
+    if cmd == "mine":
+        if _p15_cmd_mine(game, args):
+            return True
+    
+    if cmd == "harvest":
+        if _p15_cmd_harvest(game, args):
+            return True
+    
+    if cmd == "climb":
+        _p15_cmd_climb(game, args)
+        return True
+    
+    if cmd == "travel":
+        _p15_cmd_travel(game, args)
+        return True
+    
+    if cmd == "talk" and args:
+        npc = " ".join(args).title()
+        if _p15_npc_dialogue(game, npc):
+            return True
+    
+    if cmd == "say" and args:
+        if not hasattr(game, "_p6") or not game._p6.get("dialog"):
+            if prev and prev(cmd, args, game):
+                return True
+            return False
+        
+        dialog = game._p6["dialog"]
+        npc = dialog.get("npc", "")
+        
+        # Handle new NPC dialogue choices
+        if npc == "Rowan":
+            try:
+                choice = int(args[0])
+                action_id = dialog["options"][choice - 1][1]
+                
+                if action_id == "rowan_accept":
+                    game._p6["quests"]["angler_aid_plus"]["state"] = "accepted"
+                    game.say("Rowan: 'Excellent! I'll be waiting for those fish.'")
+                    game._update_quest_panel()
+                elif action_id == "rowan_turnin":
+                    quest = game._p6["quests"]["angler_aid_plus"]
+                    if _p6_eval_requirements(game, quest["need"]):
+                        _p6_consume_requirements(game, quest["need"])
+                        quest["state"] = "turned_in"
+                        _p6_apply_reward(game, quest["reward"])
+                        game.say("Rowan: 'Perfect! Here's the recipe and your payment.'")
+                        
+                        # Give fish stew recipe
+                        if hasattr(game, "_p10"):
+                            game.say("(Learned recipe: Fish Stew)")
+                        game._update_quest_panel()
+                    else:
+                        game.say("Rowan: 'You don't have enough fish yet.'")
+                elif action_id == "rowan_bye":
+                    game.say("Rowan: 'Safe travels!'")
+                
+                game._p6["dialog"] = None
+                return True
+            except:
+                pass
+        
+        elif npc == "Tamsin":
+            try:
+                choice = int(args[0])
+                action_id = dialog["options"][choice - 1][1]
+                
+                if action_id == "tamsin_accept":
+                    game._p6["quests"]["mine_matters_plus"]["state"] = "accepted"
+                    game.say("Tamsin: 'Great! Bring me that ore when you have it.'")
+                    game._update_quest_panel()
+                elif action_id == "tamsin_turnin":
+                    quest = game._p6["quests"]["mine_matters_plus"]
+                    if _p6_eval_requirements(game, quest["need"]):
+                        _p6_consume_requirements(game, quest["need"])
+                        quest["state"] = "turned_in"
+                        _p6_apply_reward(game, quest["reward"])
+                        game._p15["has_pick_upgrade"] = True
+                        game.say("Tamsin: 'Excellent work! Your pick is now upgraded (+15% yield).'")
+                        game._update_quest_panel()
+                    else:
+                        game.say("Tamsin: 'You need 2 ore still.'")
+                elif action_id == "tamsin_bye":
+                    game.say("Tamsin: 'Good luck!'")
+                
+                game._p6["dialog"] = None
+                return True
+            except:
+                pass
+        
+        elif npc == "Hermit":
+            try:
+                choice = int(args[0])
+                action_id = dialog["options"][choice - 1][1]
+                
+                if action_id == "hermit_accept":
+                    game._p6["quests"]["hermit_glow"]["state"] = "accepted"
+                    game.say("Hermit: 'Good. The marsh south of the wilds has what you need.'")
+                    game._update_quest_panel()
+                elif action_id == "hermit_turnin":
+                    quest = game._p6["quests"]["hermit_glow"]
+                    if _p6_eval_requirements(game, quest["need"]):
+                        _p6_consume_requirements(game, quest["need"])
+                        quest["state"] = "turned_in"
+                        
+                        # Give echo crystal
+                        if hasattr(game, "_p3"):
+                            game._p3["mats"]["echo_crystal"] = game._p3["mats"].get("echo_crystal", 0) + 1
+                            game.say("Hermit: 'Here is your echo crystal. It pulses with ancient energy.'")
+                            game.say("(+1 echo crystal)")
+                        
+                        if "xp" in quest.get("reward", {}):
+                            if hasattr(game, "_p2"):
+                                game._p2["xp"] = game._p2.get("xp", 0) + quest["reward"]["xp"]
+                                game.say(f"(+{quest['reward']['xp']} XP)")
+                        
+                        game._update_quest_panel()
+                        game._update_inv_panel()
+                    else:
+                        game.say("Hermit: 'You need 3 glowcaps.'")
+                elif action_id == "hermit_bye":
+                    game.say("Hermit: 'May the wilds guide you.'")
+                
+                game._p6["dialog"] = None
+                return True
+            except:
+                pass
     
     # Check for level up after XP-gaining actions
     if hasattr(game, "_p11"):
@@ -4468,7 +5374,8 @@ def part12_post_init(game):
         "active_goal": None,
         "progress": {},
         "completed": [],
-        "actions_since_reward": 0
+        "actions_since_reward": 0,
+        "npcs_talked_to": set()
     }
     _p12_assign_new_goal(game)
 
@@ -4491,13 +5398,17 @@ def _p12_assign_new_goal(game):
     game._p12["active_goal"] = dict(goal)
     game._p12["progress"][goal["id"]] = 0
     
+    # Clear NPC tracking for new talk goals
+    if goal["type"] == "talk":
+        game._p12["npcs_talked_to"] = set()
+    
     # Show new micro-goal notification
     game.say("")
     game.say(f"🎯 New Micro-Goal: {goal['desc']}")
     game.say(f"   Reward: +{goal['reward']['xp']} XP, +{goal['reward']['gold']} Gold")
     game.say("")
 
-def _p12_track_action(game, action_type):
+def _p12_track_action(game, action_type, identifier=None):
     """Track player actions for micro-goals"""
     if not hasattr(game, "_p12") or not game._p12.get("active_goal"):
         return
@@ -4506,6 +5417,17 @@ def _p12_track_action(game, action_type):
     
     if goal["type"] == action_type:
         goal_id = goal["id"]
+        
+        # For "talk" actions, only count unique NPCs
+        if action_type == "talk" and identifier:
+            if identifier in game._p12.get("npcs_talked_to", set()):
+                # Already talked to this NPC for this goal, don't count again
+                return
+            # Add NPC to the set of talked-to NPCs
+            if "npcs_talked_to" not in game._p12:
+                game._p12["npcs_talked_to"] = set()
+            game._p12["npcs_talked_to"].add(identifier)
+        
         game._p12["progress"][goal_id] = game._p12["progress"].get(goal_id, 0) + 1
         current = game._p12["progress"][goal_id]
         
@@ -4513,8 +5435,16 @@ def _p12_track_action(game, action_type):
             # Complete micro-goal!
             _p12_complete_goal(game, goal)
         else:
-            # Show progress
-            game.say(f"🎯 Progress: {goal['desc']} ({current}/{goal['goal']})")
+            # Show progress with reward preview
+            xp_reward = goal.get("reward_xp", 0)
+            gold_reward = goal.get("reward_gold", 0)
+            reward_text = []
+            if xp_reward > 0:
+                reward_text.append(f"+{xp_reward} XP")
+            if gold_reward > 0:
+                reward_text.append(f"+{gold_reward} gold")
+            reward_str = ", ".join(reward_text) if reward_text else "completion"
+            game.say(f"🎯 Progress: {goal['desc']} ({current}/{goal['goal']}) – reward: {reward_str}")
 
 def _p12_complete_goal(game, goal):
     """Complete a micro-goal and give rewards"""
@@ -4597,6 +5527,9 @@ def p13_post_init(game):
             "herbs": {"name": "Herbs", "price": 5, "desc": "Crafting ingredient"},
             "lucky_charm": {"name": "Lucky Charm", "price": 50, "desc": "Increases crit chance by 5%"},
             "iron_dagger": {"name": "Iron Dagger", "price": 30, "desc": "Increases damage by 2"},
+            "fishing_rod": {"name": "Fishing Rod", "price": 12, "desc": "Improves fishing success (+15%)"},
+            "map_scroll": {"name": "Map Scroll", "price": 4, "desc": "Hints at nearby locations"},
+            "leather_armor": {"name": "Leather Armor", "price": 40, "desc": "Reduces damage taken (-25%)"},
         },
         "treasure_found": [],  # Track found treasures
         "fast_travel_unlocked": False,
@@ -4841,6 +5774,15 @@ def _p13_cmd_sell(game, args):
     sell_prices = {
         "healing_potion": 7,
         "bandage": 4,
+        "ore": 1,
+        "fish": 1,
+        "glowcap": 1,
+        "hide": 1,
+        "reed": 1,
+        "echo_crystal": 5,
+        "coal": 2,
+        "pearl": 3,
+        "crystal_shard": 3,
         "herb": 2,
         "fiber": 1,
         "iron_dagger": 15,
@@ -5111,6 +6053,619 @@ ext_handle_command = p13_ext_handle_command
 
 
 # ===========================
+# PART 16: TYPO-TOLERANT INPUT + PLAYSTYLES
+# ===========================
+
+import difflib
+import time
+
+P16_PREV_EXT = globals().get("ext_handle_command", None)
+
+def part16_post_init(game):
+    """Initialize Part 16: typo-tolerant input and playstyles"""
+    if not hasattr(game, "_p16"):
+        game._p16 = {
+            "active_mode": "Explorer",
+            "modes": {
+                "Explorer": {
+                    "desc": "Reduced encounters, bonus XP, auto-map",
+                    "encounter_rate": 0.8,
+                    "xp_bonus": 1.1,
+                    "auto_map": True
+                },
+                "Hunter": {
+                    "desc": "More encounters, critical hits, extra loot",
+                    "encounter_rate": 1.25,
+                    "crit_bonus": 0.05,
+                    "loot_bonus": 1.1
+                },
+                "Crafter": {
+                    "desc": "Better gathering, cheaper shop prices",
+                    "gather_bonus": 1.15,
+                    "shop_discount": 0.9,
+                    "craft_speed": 1
+                },
+                "Pacifist": {
+                    "desc": "Fewer encounters, better flee chance, quest bonuses",
+                    "encounter_rate": 0.65,
+                    "flee_bonus": 0.25,
+                    "quest_xp_bonus": 1.2
+                },
+                "Merchant": {
+                    "desc": "Better trading prices, trade events",
+                    "sell_bonus": 1.2,
+                    "buy_discount": 0.9,
+                    "trade_events": True
+                },
+                "Storyteller": {
+                    "desc": "Rich flavor text, hints, gentle combat",
+                    "flavor_text": True,
+                    "hint_rate": 1.5,
+                    "combat_damage": 0.9
+                },
+                "Speedrunner": {
+                    "desc": "Timer, minimal text, fast pace",
+                    "timer_enabled": True,
+                    "text_minimal": True,
+                    "splits": []
+                },
+                "Hardcore": {
+                    "desc": "Permadeath (Ironwild), bonus rewards",
+                    "permadeath": True,
+                    "xp_bonus": 1.2,
+                    "loot_bonus": 1.1
+                },
+                "Cozy": {
+                    "desc": "No death (faint to Sanctum), better gathering",
+                    "no_death": True,
+                    "gather_bonus": 1.1,
+                    "encounter_rate": 0.75
+                }
+            },
+            "opts": {
+                "hints": False,
+                "timer": False,
+                "safety": False,
+                "verbosity": "normal"
+            },
+            "aliases": {},
+            "timer_start": None,
+            "splits": []
+        }
+    
+    # Start timer for Speedrunner mode
+    mode = game._p16.get("active_mode", "Explorer")
+    if mode == "Speedrunner" and not game._p16.get("timer_start"):
+        game._p16["timer_start"] = time.time()
+    
+    game.say("✅ Part 16 loaded: typo-tolerant input + playstyles")
+
+def _p16_normalize_text(text):
+    """Canonicalize input text"""
+    if not text:
+        return ""
+    
+    # Convert to lowercase and strip
+    text = text.lower().strip()
+    
+    # Collapse multiple spaces
+    text = " ".join(text.split())
+    
+    # Convert fancy quotes to regular quotes
+    text = text.replace('"', '"').replace('"', '"').replace("'", "'").replace("'", "'")
+    
+    # Common AU/UK to US spellings
+    spellings = {
+        "colour": "color",
+        "favour": "favor",
+        "armour": "armor"
+    }
+    for uk, us in spellings.items():
+        text = text.replace(uk, us)
+    
+    return text
+
+def _p16_get_synonyms():
+    """Return command synonyms map"""
+    return {
+        # Movement
+        "walk": "go", "move": "go", "head": "go", "travel": "go",
+        "n": "north", "s": "south", "e": "east", "w": "west", "u": "up", "d": "down",
+        "no": "north", "ea": "east", "so": "south", "we": "west",
+        
+        # Actions
+        "grab": "take", "pick": "take", "snag": "take", "get": "take",
+        "bag": "inv", "backpack": "inv", "inventory": "inv", "i": "inv",
+        "minimap": "map", "open": "map",
+        "tasks": "quests", "missions": "quests", "quest": "quests",
+        "make": "craft", "brew": "craft", "forge": "craft", "cook": "craft", "weave": "craft",
+        "fight": "attack", "engage": "attack", "battle": "attack", "hit": "attack",
+        
+        # Special cases
+        "heal": "use", "bandage": "use bandage"
+    }
+
+def _p16_fuzzy_match(token, pool, hi_threshold=0.90, lo_threshold=0.78):
+    """Fuzzy match token against pool, return (match, confidence) or (None, 0)"""
+    if not token or not pool:
+        return None, 0
+    
+    matches = difflib.get_close_matches(token, pool, n=1, cutoff=lo_threshold)
+    if not matches:
+        return None, 0
+    
+    match = matches[0]
+    # Calculate similarity ratio
+    ratio = difflib.SequenceMatcher(None, token, match).ratio()
+    
+    return match, ratio
+
+def _p16_get_known_commands():
+    """Build list of known commands from the game"""
+    base_cmds = [
+        "look", "go", "take", "drop", "inv", "use", "talk", "say",
+        "help", "save", "load", "map", "quests", "craft", "recipes",
+        "attack", "flee", "rest", "examine", "lore", "bestiary",
+        "forage", "fish", "mine", "harvest", "shop", "buy", "sell",
+        "search", "travel", "upgrade", "achievements", "stats",
+        "tutorial", "skip", "retry", "hint", "tips", "export", "import",
+        "north", "south", "east", "west", "up", "down",
+        "modes", "mode", "alias", "auto", "timer", "verbosity", "safety"
+    ]
+    return base_cmds
+
+def _p16_apply_mode_modifiers(game, context, value):
+    """Apply active mode modifiers to a value"""
+    if not hasattr(game, "_p16"):
+        return value
+    
+    mode_name = game._p16.get("active_mode", "Explorer")
+    mode_data = game._p16.get("modes", {}).get(mode_name, {})
+    
+    if context == "encounter_rate":
+        modifier = mode_data.get("encounter_rate", 1.0)
+        return value * modifier
+    elif context == "xp_gain":
+        modifier = mode_data.get("xp_bonus", 1.0)
+        quest_modifier = mode_data.get("quest_xp_bonus", 1.0)
+        # Use quest modifier if this is a quest reward
+        return value * max(modifier, quest_modifier)
+    elif context == "gather_yield":
+        modifier = mode_data.get("gather_bonus", 1.0)
+        return value * modifier
+    elif context == "shop_buy":
+        modifier = mode_data.get("buy_discount", 1.0)
+        return value * modifier
+    elif context == "shop_sell":
+        modifier = mode_data.get("sell_bonus", 1.0)
+        return value * modifier
+    elif context == "combat_damage":
+        modifier = mode_data.get("combat_damage", 1.0)
+        return value * modifier
+    elif context == "flee_chance":
+        bonus = mode_data.get("flee_bonus", 0)
+        return min(value + bonus, 0.95)  # Cap at 95%
+    
+    return value
+
+def _p16_cmd_modes(game, args):
+    """List available playstyles"""
+    if not hasattr(game, "_p16"):
+        return False
+    
+    active = game._p16.get("active_mode", "Explorer")
+    modes = game._p16.get("modes", {})
+    
+    game.say("🎭 Available Playstyles:")
+    game.say("")
+    
+    for mode_name in sorted(modes.keys()):
+        mode_data = modes[mode_name]
+        marker = "→" if mode_name == active else " "
+        game.say(f"{marker} {mode_name}: {mode_data.get('desc', '')}")
+    
+    game.say("")
+    game.say(f"Current mode: {active}")
+    game.say("Use 'mode <name>' to switch, or 'mode info' for details")
+    return True
+
+def _p16_cmd_mode(game, args):
+    """Switch playstyle mode"""
+    if not hasattr(game, "_p16"):
+        return False
+    
+    if not args:
+        return _p16_cmd_modes(game, [])
+    
+    if args[0].lower() == "info":
+        mode_name = game._p16.get("active_mode", "Explorer")
+        mode_data = game._p16.get("modes", {}).get(mode_name, {})
+        
+        game.say(f"🎭 {mode_name} Mode")
+        game.say(f"Description: {mode_data.get('desc', '')}")
+        game.say("")
+        game.say("Active modifiers:")
+        
+        for key, val in mode_data.items():
+            if key != "desc":
+                game.say(f"  • {key}: {val}")
+        
+        return True
+    
+    target_mode = args[0].capitalize()
+    modes = game._p16.get("modes", {})
+    
+    if target_mode not in modes:
+        game.say(f"Unknown mode: {args[0]}")
+        game.say("Use 'modes' to see available options")
+        return True
+    
+    # Check if we're in Sanctum or need to pay
+    if game.cur_room != "sanctum":
+        cost = 5
+        gold = game._p3.get("gold", 0) if hasattr(game, "_p3") else 0
+        
+        if gold < cost:
+            game.say(f"Switching modes outside Sanctum costs {cost} gold. You have {gold}.")
+            return True
+        
+        game._p3["gold"] = gold - cost
+        game.say(f"Mode respec: -{cost} gold")
+    
+    # Switch mode
+    old_mode = game._p16.get("active_mode", "Explorer")
+    game._p16["active_mode"] = target_mode
+    
+    # Start timer for Speedrunner
+    if target_mode == "Speedrunner":
+        game._p16["timer_start"] = time.time()
+        game._p16["opts"]["timer"] = True
+    
+    # Enable safety for Cozy mode
+    if target_mode == "Cozy":
+        game._p16["opts"]["safety"] = True
+    
+    game.say(f"🎭 Switched from {old_mode} to {target_mode} mode!")
+    return True
+
+def _p16_cmd_alias(game, args):
+    """Create custom command alias"""
+    if not hasattr(game, "_p16"):
+        return False
+    
+    if not args:
+        aliases = game._p16.get("aliases", {})
+        if not aliases:
+            game.say("No custom aliases defined")
+            game.say("Usage: alias <short>=<command>")
+        else:
+            game.say("Custom aliases:")
+            for short, full in aliases.items():
+                game.say(f"  {short} → {full}")
+        return True
+    
+    text = " ".join(args)
+    if "=" not in text:
+        game.say("Usage: alias <short>=<command>")
+        game.say("Example: alias gn=go north")
+        return True
+    
+    short, full = text.split("=", 1)
+    short = short.strip()
+    full = full.strip()
+    
+    game._p16["aliases"][short] = full
+    game.say(f"Alias created: '{short}' → '{full}'")
+    return True
+
+def _p16_cmd_auto_craft(game, args):
+    """Auto-gather and craft an item"""
+    if not args:
+        game.say("Usage: auto craft <item>")
+        return True
+    
+    item_name = " ".join(args)
+    
+    # Check if this is a known recipe
+    recipes = {
+        "bandage": {"fiber": 1},
+        "potion": {"herbs": 2},
+        "lesser potion": {"herbs": 2}
+    }
+    
+    recipe = recipes.get(item_name.lower())
+    if not recipe:
+        game.say(f"Don't know how to auto-craft: {item_name}")
+        game.say("Available: bandage, potion")
+        return True
+    
+    game.say(f"🔄 Auto-crafting {item_name}...")
+    
+    # Check materials
+    inv = game.player.inv
+    attempts = 0
+    max_attempts = 12
+    
+    for mat, needed in recipe.items():
+        have = inv.get(mat, 0)
+        
+        while have < needed and attempts < max_attempts:
+            # Try to gather
+            if mat in ("herbs", "fiber"):
+                game.say(f"  Gathering {mat}...")
+                _p3_forage(game)
+                attempts += 1
+            elif mat == "wood":
+                if hasattr(game, "_p7"):
+                    game.say(f"  Harvesting wood...")
+                    _p7_cmd_harvest(game, [])
+                    attempts += 1
+            
+            have = inv.get(mat, 0)
+        
+        if have < needed:
+            game.say(f"❌ Failed: could not gather enough {mat} ({have}/{needed})")
+            return True
+    
+    # Try to craft
+    game.dispatch(f"craft {item_name}")
+    game.say(f"✅ Auto-craft complete ({attempts} gather attempts)")
+    return True
+
+def _p16_cmd_go_to(game, args):
+    """Simple pathfinding to known location"""
+    if not args:
+        game.say("Usage: go to <location>")
+        return True
+    
+    target = "_".join(args).lower()
+    
+    # Only works for seen rooms
+    if target not in game.world.rooms:
+        game.say(f"Unknown location: {' '.join(args)}")
+        return True
+    
+    target_room = game.world.get(target)
+    if not target_room.seen:
+        game.say("You haven't discovered that location yet")
+        return True
+    
+    # Simple BFS pathfinding
+    from collections import deque
+    
+    queue = deque([(game.cur_room, [])])
+    visited = set()
+    
+    while queue:
+        current, path = queue.popleft()
+        
+        if current == target:
+            if not path:
+                game.say("You're already here!")
+                return True
+            
+            game.say(f"Path to {target}: {' → '.join(path)}")
+            
+            # Execute path (limit to 5 steps)
+            for direction in path[:5]:
+                game.move(direction)
+            
+            return True
+        
+        if current in visited:
+            continue
+        visited.add(current)
+        
+        current_room = game.world.get(current)
+        for direction, neighbor in current_room.neighbors.items():
+            if neighbor not in visited:
+                queue.append((neighbor, path + [direction]))
+    
+    game.say(f"No path found to {target}")
+    return True
+
+def _p16_cmd_timer(game, args):
+    """Toggle or show speedrun timer"""
+    if not hasattr(game, "_p16"):
+        return False
+    
+    if not args or args[0] not in ("on", "off", "show"):
+        # Show timer
+        if game._p16.get("timer_start"):
+            elapsed = time.time() - game._p16["timer_start"]
+            minutes = int(elapsed // 60)
+            seconds = int(elapsed % 60)
+            game.say(f"⏱️ Timer: {minutes:02d}:{seconds:02d}")
+            
+            splits = game._p16.get("splits", [])
+            if splits:
+                game.say("Splits:")
+                for split_name, split_time in splits:
+                    sm = int(split_time // 60)
+                    ss = int(split_time % 60)
+                    game.say(f"  • {split_name}: {sm:02d}:{ss:02d}")
+        else:
+            game.say("Timer not started")
+        return True
+    
+    if args[0] == "on":
+        game._p16["timer_start"] = time.time()
+        game._p16["opts"]["timer"] = True
+        game.say("⏱️ Timer started")
+    elif args[0] == "off":
+        game._p16["opts"]["timer"] = False
+        game.say("⏱️ Timer disabled")
+    
+    return True
+
+def _p16_cmd_hint(game, args):
+    """Toggle hints"""
+    if not hasattr(game, "_p16"):
+        return False
+    
+    if not args:
+        state = game._p16["opts"].get("hints", False)
+        game.say(f"Hints are currently {'ON' if state else 'OFF'}")
+        game.say("Usage: hint on/off")
+        return True
+    
+    if args[0] == "on":
+        game._p16["opts"]["hints"] = True
+        game.say("💡 Hints enabled")
+    elif args[0] == "off":
+        game._p16["opts"]["hints"] = False
+        game.say("💡 Hints disabled")
+    
+    return True
+
+def _p16_cmd_verbosity(game, args):
+    """Set text verbosity level"""
+    if not hasattr(game, "_p16"):
+        return False
+    
+    if not args:
+        level = game._p16["opts"].get("verbosity", "normal")
+        game.say(f"Verbosity: {level}")
+        game.say("Options: low, normal, high")
+        return True
+    
+    level = args[0].lower()
+    if level not in ("low", "normal", "high"):
+        game.say("Options: low, normal, high")
+        return True
+    
+    game._p16["opts"]["verbosity"] = level
+    game.say(f"Verbosity set to: {level}")
+    return True
+
+def _p16_cmd_safety(game, args):
+    """Toggle safety mode (no death)"""
+    if not hasattr(game, "_p16"):
+        return False
+    
+    if not args:
+        state = game._p16["opts"].get("safety", False)
+        game.say(f"Safety mode: {'ON' if state else 'OFF'}")
+        game.say("(ON = faint to Sanctum instead of death)")
+        return True
+    
+    if args[0] == "on":
+        game._p16["opts"]["safety"] = True
+        game.say("🛡️ Safety mode enabled (no death)")
+    elif args[0] == "off":
+        game._p16["opts"]["safety"] = False
+        game.say("🛡️ Safety mode disabled")
+    
+    return True
+
+def p16_ext_handle_command(cmd, args, game):
+    """Part 16 extension handler with typo tolerance"""
+    prev = P16_PREV_EXT if P16_PREV_EXT is not p16_ext_handle_command else None
+    
+    # Initialize if needed
+    if not hasattr(game, "_p16"):
+        part16_post_init(game)
+    
+    # Expand player aliases first
+    full_cmd = " ".join([cmd] + args)
+    aliases = game._p16.get("aliases", {})
+    
+    for alias, expansion in aliases.items():
+        if full_cmd.startswith(alias):
+            full_cmd = full_cmd.replace(alias, expansion, 1)
+            parts = full_cmd.split()
+            cmd = parts[0] if parts else cmd
+            args = parts[1:] if len(parts) > 1 else []
+            break
+    
+    # Normalize and apply synonyms
+    cmd = _p16_normalize_text(cmd)
+    synonyms = _p16_get_synonyms()
+    
+    # Special case: "heal up" -> "use bandage"
+    if cmd == "heal" and args and args[0] == "up":
+        if "bandage" in game.player.inv or "bandages" in game.player.inv:
+            cmd = "use"
+            args = ["bandage"]
+    
+    # Apply synonym mapping
+    if cmd in synonyms:
+        replacement = synonyms[cmd]
+        if " " in replacement:
+            # Multi-word replacement
+            parts = replacement.split()
+            cmd = parts[0]
+            args = parts[1:] + args
+        else:
+            cmd = replacement
+    
+    # Fuzzy match commands if not recognized
+    known_cmds = _p16_get_known_commands()
+    
+    if cmd not in known_cmds:
+        match, confidence = _p16_fuzzy_match(cmd, known_cmds)
+        
+        if match and confidence >= 0.90:
+            # Auto-correct silently
+            cmd = match
+        elif match and confidence >= 0.78:
+            # Suggest and run
+            game.say(f"Did you mean: {match}?")
+            cmd = match
+    
+    # Fuzzy match items/NPCs for take/use/drop/talk
+    if cmd in ("take", "use", "drop", "talk") and args:
+        target = " ".join(args).lower()
+        
+        # Build pool of valid targets
+        pool = []
+        room = game.room()
+        
+        if cmd in ("take", "use", "drop"):
+            # Items in room
+            pool.extend([item.id for item in room.items])
+            # Items in inventory
+            pool.extend(game.player.inv.keys())
+        elif cmd == "talk":
+            # NPCs in room
+            pool.extend([npc.lower() for npc in room.npcs])
+        
+        if pool:
+            match, confidence = _p16_fuzzy_match(target.replace(" ", "_"), pool)
+            
+            if match and confidence >= 0.78:
+                args = [match]
+    
+    # Handle Part 16 commands
+    if cmd == "modes":
+        return _p16_cmd_modes(game, args)
+    elif cmd == "mode":
+        return _p16_cmd_mode(game, args)
+    elif cmd == "alias":
+        return _p16_cmd_alias(game, args)
+    elif cmd == "auto" and args and args[0] == "craft":
+        return _p16_cmd_auto_craft(game, args[1:])
+    elif cmd == "go" and args and args[0] == "to":
+        return _p16_cmd_go_to(game, args[1:])
+    elif cmd == "timer":
+        return _p16_cmd_timer(game, args)
+    elif cmd == "hint":
+        return _p16_cmd_hint(game, args)
+    elif cmd == "verbosity":
+        return _p16_cmd_verbosity(game, args)
+    elif cmd == "safety":
+        return _p16_cmd_safety(game, args)
+    
+    # Call previous handler
+    if prev and prev(cmd, args, game):
+        return True
+    
+    return False
+
+ext_handle_command = p16_ext_handle_command
+
+
+# ===========================
 # BOOT GAME
 # ===========================
 
@@ -5196,8 +6751,11 @@ def on_key(evt):
         on_send(evt)
     elif evt.key == "ArrowUp":
         evt.preventDefault()
-        if command_history and history_index > 0:
-            history_index -= 1
+        if command_history:
+            if history_index >= len(command_history):
+                history_index = len(command_history) - 1
+            elif history_index > 0:
+                history_index -= 1
             cmd_input.value = command_history[history_index]
     elif evt.key == "ArrowDown":
         evt.preventDefault()
@@ -5228,7 +6786,9 @@ for b in document.querySelectorAll('button[data-q]').to_py():
 
 cmd_input.focus()
 # --- boot the game & wire controls ---
-game = Game()
+# NOTE: game was already instantiated above. Do not recreate it here or the
+# tutorial state (and other runtime state) will be lost. Just expose the
+# existing game to the window for debugging.
 window.game = game  # so the "Log Game State" button works
 
 def _send(_evt=None):
@@ -5246,16 +6806,24 @@ def _on_key(e):
     if e.key == "Enter":
         _send()
     elif e.key == "ArrowUp":
-        if history_index > 0:
-            history_index -= 1
-            cmd_input.value = command_history[history_index]
+        e.preventDefault()
+        if command_history:
+            # Start from the most recent command
+            if history_index >= len(command_history):
+                history_index = len(command_history) - 1
+            elif history_index > 0:
+                history_index -= 1
+            if history_index >= 0 and history_index < len(command_history):
+                cmd_input.value = command_history[history_index]
     elif e.key == "ArrowDown":
-        if history_index < len(command_history) - 1:
-            history_index += 1
-            cmd_input.value = command_history[history_index]
-        else:
-            history_index = len(command_history)
-            cmd_input.value = ""
+        e.preventDefault()
+        if command_history:
+            if history_index < len(command_history) - 1:
+                history_index += 1
+                cmd_input.value = command_history[history_index]
+            else:
+                history_index = len(command_history)
+                cmd_input.value = ""
 
 cmd_input.addEventListener("keydown", create_proxy(_on_key))
 
