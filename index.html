@@ -6578,8 +6578,11 @@ def p16_ext_handle_command(cmd, args, game):
             args = parts[1:] if len(parts) > 1 else []
             break
     
-    # Normalize and apply synonyms
+    # Normalize cmd
+    original_cmd = cmd
     cmd = _p16_normalize_text(cmd)
+    
+    # Apply synonym mapping FIRST
     synonyms = _p16_get_synonyms()
     
     # Special case: "heal up" -> "use bandage"
@@ -6587,9 +6590,7 @@ def p16_ext_handle_command(cmd, args, game):
         if "bandage" in game.player.inv or "bandages" in game.player.inv:
             cmd = "use"
             args = ["bandage"]
-    
-    # Apply synonym mapping
-    if cmd in synonyms:
+    elif cmd in synonyms:
         replacement = synonyms[cmd]
         if " " in replacement:
             # Multi-word replacement
@@ -6602,7 +6603,11 @@ def p16_ext_handle_command(cmd, args, game):
     # Fuzzy match commands if not recognized
     known_cmds = _p16_get_known_commands()
     
-    if cmd not in known_cmds:
+    # Also check if it's a direction that needs synonym expansion
+    if cmd in ("n", "s", "e", "w", "u", "d", "no", "ea", "so", "we"):
+        # Let the move handler deal with it - pass through
+        pass
+    elif cmd not in known_cmds and not cmd.isdigit():
         match, confidence = _p16_fuzzy_match(cmd, known_cmds)
         
         if match and confidence >= 0.90:
@@ -6656,7 +6661,7 @@ def p16_ext_handle_command(cmd, args, game):
     elif cmd == "safety":
         return _p16_cmd_safety(game, args)
     
-    # Call previous handler
+    # Call previous handler with potentially rewritten cmd/args
     if prev and prev(cmd, args, game):
         return True
     
