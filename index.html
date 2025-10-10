@@ -115,6 +115,18 @@
   - Command Routing: Improved parser order to prevent misrouting of tutorial/talk/shop commands
   - Smoke Tests: Added comprehensive tests for all new features and bug fixes
   
+  ===== v13 POLISH & REFINEMENTS (Oct 10, 2025) =====
+  - Tutorial Auto-Hide: Tutorial bar now auto-hides on completion and skip with localStorage persistence
+  - Tutorial UI Helpers: Added hideTutorialUI() and showTutorialUI() JavaScript functions for cleaner control
+  - Trade Command: Added 'trade' command as alias for shop/vendor with NPC support
+  - Trade Routing: 'trade', 'trade <npc>', and 'trade with <npc>' now open vendor/shop interface
+  - Tutorial State: Both wilds_tutorial_done and wilds_tutorial_completed now set on tutorial finish
+  - Settings Integration: Tutorial bar toggle properly syncs with tutorial completion state
+  - Fuzzy Match Fix: Added 'rest', 'skip', 'tutorial' and other commands to valid commands list to prevent misrouting
+  - Skip Command: 'skip' alone now properly triggers tutorial skip instead of opening vendor
+  - Rest Command: 'rest' command no longer incorrectly triggers test suite
+  - Short Command Safety: Commands 3 chars or less bypass fuzzy matching to prevent false positives
+  
   ===== DEV NOTES =====
   - Runs on PyScript 2024.6.1 (Pyodide in-browser Python)
   - Static site, GitHub Pages compatible
@@ -1546,20 +1558,35 @@ function toggleTutorialBar() {
   localStorage.setItem('wilds_tutorial_bar', tutorialBarEnabled ? 'on' : 'off');
 }
 
-function disableTutorialBar() {
-  // Force tutorial bar to OFF state
+function hideTutorialUI() {
+  const progressEl = document.getElementById('tutorial-progress');
+  const ghostEl = document.getElementById('ghost-command');
+  if (progressEl) progressEl.style.display = 'none';
+  if (ghostEl) ghostEl.style.display = 'none';
   tutorialBarEnabled = false;
   const btn = document.getElementById('tutorial-bar-toggle');
-  const progressEl = document.getElementById('tutorial-progress');
-  
   if (btn) btn.textContent = 'Tutorial Bar: OFF';
-  
-  if (progressEl) {
-    progressEl.style.display = 'none';
-  }
-  
   localStorage.setItem('wilds_tutorial_bar', 'off');
 }
+
+function showTutorialUI() {
+  const progressEl = document.getElementById('tutorial-progress');
+  const ghostEl = document.getElementById('ghost-command');
+  if (progressEl) progressEl.style.display = 'block';
+  if (ghostEl) ghostEl.style.display = 'block';
+  tutorialBarEnabled = true;
+  const btn = document.getElementById('tutorial-bar-toggle');
+  if (btn) btn.textContent = 'Tutorial Bar: ON';
+  localStorage.setItem('wilds_tutorial_bar', 'on');
+}
+
+function disableTutorialBar() {
+  // Force tutorial bar to OFF state
+  hideTutorialUI();
+}
+
+window.hideTutorialUI = hideTutorialUI;
+window.showTutorialUI = showTutorialUI;
 
 function areHintsEnabled() {
   return hintsEnabled;
@@ -3081,6 +3108,7 @@ def complete_tutorial(game):
     # Save completion
     try:
         localStorage.setItem("wilds_tutorial_done", "true")
+        localStorage.setItem("wilds_tutorial_completed", "true")
     except:
         pass
     
@@ -3094,6 +3122,7 @@ def skip_tutorial():
     
     try:
         localStorage.setItem("wilds_tutorial_done", "true")
+        localStorage.setItem("wilds_tutorial_completed", "true")
     except:
         pass
     
@@ -4577,7 +4606,8 @@ test - Run automated tests
             'shop', 'buy', 'sell', 'trade', 'travel', 'upgrade',
             'save', 'load', 'help', 'quit', 'exit', 'q',
             'xp', 'exp', 'bestiary', 'lore', 'history', 'achievements',
-            'sound', 'test', 'skills'
+            'sound', 'test', 'skills',
+            'rest', 'tutorial', 'skip', 'hunt', 'dive', 'climb', 'descend'
         }
     
     def fuzzy_match_command(self, cmd: str) -> str:
@@ -4597,6 +4627,10 @@ test - Run automated tests
         
         # Blacklist of destructive commands that should NEVER be auto-executed
         destructive_commands = {'quit', 'exit', 'q', 'reset', 'erase'}
+        
+        # Don't fuzzy match very short commands (3 chars or less) - too many false positives
+        if len(cmd) <= 3:
+            return cmd
         
         for valid_cmd in valid_cmds:
             distance = self._damerau_levenshtein(cmd, valid_cmd)
@@ -11412,15 +11446,17 @@ def p17_ext_handle_command(cmd, args, game):
             return True
     
     # Skip tutorial shortcut (separate command for convenience)
-    if cmd == "skip" and args and args[0] == "tutorial":
-        try:
-            tutorial.skip_tutorial()
-            localStorage.setItem("wilds_tutorial_completed", "true")
-            window.toggleTutorialBar() if window.tutorialBarEnabled else None
-            game.say("Tutorial skipped and marked complete.")
-        except:
-            pass
-        return True
+    if cmd == "skip":
+        # "skip" alone or "skip tutorial" both skip the tutorial
+        if not args or (args and args[0] == "tutorial"):
+            try:
+                tutorial.skip_tutorial()
+                localStorage.setItem("wilds_tutorial_completed", "true")
+                window.toggleTutorialBar() if window.tutorialBarEnabled else None
+                game.say("Tutorial skipped and marked complete.")
+            except:
+                pass
+            return True
     
     # IMPROVEMENT: "hide hints" command
     if cmd == "hide" and args and args[0] == "hints":
@@ -11937,8 +11973,8 @@ def p18_ext_handle_command(cmd, args, game):
         show_leaderboards(game)
         return True
     
-    # TASK H: Add shop/vendor command (enable at Hunter's Camp with Lysa)
-    if cmd == "vendor" or cmd == "shop":
+    # TASK H: Add shop/vendor/trade command (enable at Hunter's Camp with Lysa)
+    if cmd == "vendor" or cmd == "shop" or cmd == "trade":
         show_vendor(game)
         return True
     
@@ -11948,6 +11984,13 @@ def p18_ext_handle_command(cmd, args, game):
     
     if cmd == "sell":
         sell_item(game, args)
+        return True
+    
+    if cmd == "trade" and args:
+        # Allow "trade with <npc>" or "trade <npc>" to open their shop
+        npc_name = " ".join(args).lower().replace("with ", "")
+        game.say(f"Trading with {npc_name.title()}...")
+        show_vendor(game)
         return True
     
     if cmd == "ui":
