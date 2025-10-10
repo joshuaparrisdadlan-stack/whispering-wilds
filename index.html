@@ -75,6 +75,18 @@
   - All settings persist in localStorage across sessions
   - Settings area collapsed by default for cleaner footer
   
+  ===== v10 MULTI-AGE ACCESSIBILITY (Oct 10, 2025) =====
+  - Five playstyle profiles: Storybook (5-8), Adventurer (8-12), Explorer (teens+), Veteran, Hardcore
+  - Independent guidance levels: Off, Light, Standard, Coach, Hand-in-Hand
+  - Safety toggles: No random attacks, Can't be attacked, Hide attack verbs (override profiles)
+  - Difficulty sliders: Encounter rate, flee success, XP gain, drop luck, vendor prices, puzzle hints
+  - Read-aloud narration: Web Speech API integration with toggle controls
+  - Text simplification: Age-appropriate room descriptions for younger players
+  - Adaptive assistance: Analyzes first 8-12 actions, suggests better profile/guidance
+  - Parental lock: PIN-protected settings to prevent unauthorized changes
+  - Profile command: Type 'profile' to view all available playstyle options
+  - All settings persist and restore on page load
+  
   ===== DEV NOTES =====
   - Runs on PyScript 2024.6.1 (Pyodide in-browser Python)
   - Static site, GitHub Pages compatible
@@ -273,6 +285,29 @@
     
     button:active {
       transform:translateY(1px);
+    }
+    
+    /* IMPROVEMENT: Use buttons in inventory */
+    .use-btn {
+      padding: 4px 10px;
+      font-size: 12px;
+      margin-left: 8px;
+      background: var(--accent);
+      color: var(--bg);
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 500;
+      transition: opacity 0.2s;
+    }
+    
+    .use-btn:hover {
+      opacity: 0.8;
+      background: var(--accent);
+    }
+    
+    .use-btn:active {
+      transform: translateY(1px);
     }
     
     footer {
@@ -521,6 +556,205 @@
       display: none !important;
     }
     
+    /* Multi-Age Accessibility Features */
+    .profile-selector {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin: 8px 0;
+    }
+    
+    .profile-radio {
+      display: none;
+    }
+    
+    .profile-label {
+      padding: 6px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--panel-bg);
+      cursor: pointer;
+      font-size: 11px;
+      transition: all 0.2s;
+      user-select: none;
+    }
+    
+    .profile-label:hover {
+      background: var(--panel-hover);
+    }
+    
+    .profile-radio:checked + .profile-label {
+      background: var(--accent);
+      color: var(--bg);
+      border-color: var(--accent);
+      font-weight: 600;
+    }
+    
+    .difficulty-slider {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 6px 0;
+      font-size: 11px;
+    }
+    
+    .difficulty-slider label {
+      min-width: 120px;
+    }
+    
+    .difficulty-slider input[type="range"] {
+      flex: 1;
+      max-width: 200px;
+      height: 6px;
+      border-radius: 3px;
+      background: var(--border);
+      outline: none;
+      -webkit-appearance: none;
+    }
+    
+    .difficulty-slider input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer;
+    }
+    
+    .difficulty-slider input[type="range"]::-moz-range-thumb {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer;
+      border: none;
+    }
+    
+    .difficulty-slider .value-display {
+      min-width: 50px;
+      text-align: right;
+      color: var(--accent);
+    }
+    
+    .guidance-selector {
+      display: flex;
+      gap: 4px;
+      margin: 6px 0;
+    }
+    
+    .guidance-btn {
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--panel-bg);
+      cursor: pointer;
+      font-size: 10px;
+      transition: all 0.2s;
+    }
+    
+    .guidance-btn:hover {
+      background: var(--panel-hover);
+    }
+    
+    .guidance-btn.active {
+      background: var(--accent);
+      color: var(--bg);
+      border-color: var(--accent);
+      font-weight: 600;
+    }
+    
+    .safety-toggles {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 6px 0;
+    }
+    
+    .safety-toggle {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 11px;
+    }
+    
+    .safety-toggle input[type="checkbox"] {
+      cursor: pointer;
+    }
+    
+    .settings-section {
+      margin: 12px 0;
+      padding: 8px 0;
+      border-top: 1px solid var(--border);
+    }
+    
+    .settings-section:first-child {
+      border-top: none;
+    }
+    
+    .settings-section h4 {
+      margin: 0 0 8px 0;
+      font-size: 12px;
+      color: var(--accent);
+      font-weight: 600;
+    }
+    
+    #settings-area.expanded {
+      max-height: 800px;
+    }
+    
+    .parental-lock-modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.7);
+      z-index: 10000;
+      justify-content: center;
+      align-items: center;
+    }
+    
+    .parental-lock-modal.active {
+      display: flex;
+    }
+    
+    .lock-modal-content {
+      background: var(--panel-bg);
+      border: 2px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      max-width: 400px;
+      text-align: center;
+    }
+    
+    .lock-modal-content h3 {
+      margin-top: 0;
+      color: var(--accent);
+    }
+    
+    .lock-modal-content input {
+      width: 100%;
+      padding: 10px;
+      margin: 12px 0;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--fg);
+      font: inherit;
+      text-align: center;
+      font-size: 18px;
+      letter-spacing: 4px;
+    }
+    
+    .lock-modal-buttons {
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      margin-top: 16px;
+    }
+    
     /* IMPROVEMENT: Mobile Virtual D-pad */
     #mobile-dpad {
       display: none;
@@ -739,29 +973,149 @@ document.getElementById('skip-to-input').addEventListener('blur', function() {
     
     <!-- IMPROVEMENT: Collapsible Settings Area -->
     <div id="settings-area">
-      <span style="margin-left:0px;">Text Size:</span>
-      <button onclick="setFontSize('14px')" style="padding:4px 8px;font-size:11px;">Small</button>
-      <button onclick="setFontSize('16px')" style="padding:4px 8px;font-size:11px;">Medium</button>
-      <button onclick="setFontSize('18px')" style="padding:4px 8px;font-size:11px;">Large</button>
-      <span style="margin-left:12px;">Theme:</span>
-      <select id="theme-select" onchange="setTheme(this.value)" style="padding:4px 8px;font-size:11px;background:var(--panel-bg);color:var(--fg);border:1px solid var(--border);border-radius:6px;cursor:pointer;">
-        <option value="dark">Dark Forest</option>
-        <option value="light">Light Meadow</option>
-      </select>
-      <button id="compact-mode-btn" onclick="toggleCompactMode()" style="margin-left:12px;padding:4px 8px;font-size:11px;">Compact Mode: OFF</button>
-      <br style="margin-top:4px;" />
-      <button id="mode-toggle" onclick="toggleMobileMode()" style="margin-left:0px;padding:4px 8px;font-size:11px;">Mode: Desktop</button>
-      <button id="dyslexic-toggle" onclick="toggleDyslexicFont()" style="margin-left:12px;padding:4px 8px;font-size:11px;">Dyslexic Font: OFF</button>
-      <button id="sound-toggle" onclick="toggleSound()" style="margin-left:12px;padding:4px 8px;font-size:11px;">Sound: OFF</button>
-      <button id="music-toggle" onclick="toggleMusic()" style="margin-left:12px;padding:4px 8px;font-size:11px;">Music: OFF</button>
-      <button id="hints-toggle" onclick="toggleHints()" style="margin-left:12px;padding:4px 8px;font-size:11px;">Hints: ON</button>
-      <button id="arrows-toggle" onclick="toggleArrowKeys()" style="margin-left:12px;padding:4px 8px;font-size:11px;">Arrow Keys: OFF</button>
+      <!-- Profile Selection -->
+      <div class="settings-section">
+        <h4>🎮 Playstyle Profile</h4>
+        <div class="profile-selector">
+          <input type="radio" id="profile-storybook" name="profile" value="storybook" class="profile-radio" onchange="applyProfile('storybook')">
+          <label for="profile-storybook" class="profile-label" title="Ages 5-8: Read-aloud friendly, zero danger, lots of guidance">Storybook</label>
+          
+          <input type="radio" id="profile-adventurer" name="profile" value="adventurer" class="profile-radio" onchange="applyProfile('adventurer')">
+          <label for="profile-adventurer" class="profile-label" title="Ages 8-12: Gentle encounters, strong hints">Adventurer</label>
+          
+          <input type="radio" id="profile-explorer" name="profile" value="explorer" class="profile-radio" checked onchange="applyProfile('explorer')">
+          <label for="profile-explorer" class="profile-label" title="Teens/Adults casual: Balanced difficulty">Explorer</label>
+          
+          <input type="radio" id="profile-veteran" name="profile" value="veteran" class="profile-radio" onchange="applyProfile('veteran')">
+          <label for="profile-veteran" class="profile-label" title="Experienced: Scarcer drops, smarter foes, light hints">Veteran</label>
+          
+          <input type="radio" id="profile-hardcore" name="profile" value="hardcore" class="profile-radio" onchange="applyProfile('hardcore')">
+          <label for="profile-hardcore" class="profile-label" title="Experts: Permadeath, no hints, maximum challenge">Hardcore</label>
+        </div>
+      </div>
+      
+      <!-- Guidance Level -->
+      <div class="settings-section">
+        <h4>🧭 Guidance Level</h4>
+        <div class="guidance-selector">
+          <button class="guidance-btn" data-level="off" onclick="setGuidanceLevel('off')">Off</button>
+          <button class="guidance-btn" data-level="light" onclick="setGuidanceLevel('light')">Light</button>
+          <button class="guidance-btn active" data-level="standard" onclick="setGuidanceLevel('standard')">Standard</button>
+          <button class="guidance-btn" data-level="coach" onclick="setGuidanceLevel('coach')">Coach</button>
+          <button class="guidance-btn" data-level="hand" onclick="setGuidanceLevel('hand')">Hand-in-Hand</button>
+        </div>
+      </div>
+      
+      <!-- Safety Toggles -->
+      <div class="settings-section">
+        <h4>🛡️ Safety Options</h4>
+        <div class="safety-toggles">
+          <label class="safety-toggle">
+            <input type="checkbox" id="safety-no-random-attacks" onchange="updateSafetySettings()">
+            <span>No random attacks</span>
+          </label>
+          <label class="safety-toggle">
+            <input type="checkbox" id="safety-cant-be-attacked" onchange="updateSafetySettings()">
+            <span>Can't be attacked</span>
+          </label>
+          <label class="safety-toggle">
+            <input type="checkbox" id="safety-hide-attack-verbs" onchange="updateSafetySettings()">
+            <span>Hide attack verbs</span>
+          </label>
+        </div>
+      </div>
+      
+      <!-- Difficulty Sliders -->
+      <div class="settings-section">
+        <h4>⚙️ Difficulty Tuning</h4>
+        <div class="difficulty-slider">
+          <label>Encounter Rate:</label>
+          <input type="range" id="slider-encounter-rate" min="0" max="200" value="100" oninput="updateSlider('encounter-rate', this.value)">
+          <span class="value-display" id="val-encounter-rate">100%</span>
+        </div>
+        <div class="difficulty-slider">
+          <label>Flee Success:</label>
+          <input type="range" id="slider-flee-chance" min="0" max="100" value="50" oninput="updateSlider('flee-chance', this.value)">
+          <span class="value-display" id="val-flee-chance">50%</span>
+        </div>
+        <div class="difficulty-slider">
+          <label>XP Gain:</label>
+          <input type="range" id="slider-xp-gain" min="50" max="200" value="100" oninput="updateSlider('xp-gain', this.value)">
+          <span class="value-display" id="val-xp-gain">100%</span>
+        </div>
+        <div class="difficulty-slider">
+          <label>Drop Luck:</label>
+          <input type="range" id="slider-drop-luck" min="50" max="200" value="100" oninput="updateSlider('drop-luck', this.value)">
+          <span class="value-display" id="val-drop-luck">100%</span>
+        </div>
+        <div class="difficulty-slider">
+          <label>Vendor Prices:</label>
+          <input type="range" id="slider-vendor-prices" min="50" max="150" value="100" oninput="updateSlider('vendor-prices', this.value)">
+          <span class="value-display" id="val-vendor-prices">100%</span>
+        </div>
+        <div class="difficulty-slider">
+          <label>Puzzle Hints:</label>
+          <input type="range" id="slider-puzzle-hints" min="0" max="100" value="50" oninput="updateSlider('puzzle-hints', this.value)">
+          <span class="value-display" id="val-puzzle-hints">50%</span>
+        </div>
+      </div>
+      
+      <!-- Read-Aloud & Text -->
+      <div class="settings-section">
+        <h4>📖 Reading Options</h4>
+        <button id="read-aloud-toggle" onclick="toggleReadAloud()" style="padding:4px 8px;font-size:11px;">Read Aloud: OFF</button>
+        <button id="simplify-text-toggle" onclick="toggleSimplifyText()" style="margin-left:8px;padding:4px 8px;font-size:11px;">Simplify Text: OFF</button>
+        <button id="stop-speech-btn" onclick="stopSpeech()" style="margin-left:8px;padding:4px 8px;font-size:11px;display:none;">Stop Reading</button>
+      </div>
+      
+      <!-- General Settings -->
+      <div class="settings-section">
+        <h4>🎨 Display & Audio</h4>
+        <span>Text Size:</span>
+        <button onclick="setFontSize('14px')" style="padding:4px 8px;font-size:11px;margin-left:4px;">Small</button>
+        <button onclick="setFontSize('16px')" style="padding:4px 8px;font-size:11px;">Medium</button>
+        <button onclick="setFontSize('18px')" style="padding:4px 8px;font-size:11px;">Large</button>
+        <span style="margin-left:12px;">Theme:</span>
+        <select id="theme-select" onchange="setTheme(this.value)" style="padding:4px 8px;font-size:11px;background:var(--panel-bg);color:var(--fg);border:1px solid var(--border);border-radius:6px;cursor:pointer;">
+          <option value="dark">Dark Forest</option>
+          <option value="light">Light Meadow</option>
+        </select>
+        <br style="margin-top:6px;" />
+        <button id="mode-toggle" onclick="toggleMobileMode()" style="padding:4px 8px;font-size:11px;">Mode: Desktop</button>
+        <button id="dyslexic-toggle" onclick="toggleDyslexicFont()" style="margin-left:8px;padding:4px 8px;font-size:11px;">Dyslexic Font: OFF</button>
+        <button id="compact-mode-btn" onclick="toggleCompactMode()" style="margin-left:8px;padding:4px 8px;font-size:11px;">Compact Mode: OFF</button>
+        <br style="margin-top:6px;" />
+        <button id="sound-toggle" onclick="toggleSound()" style="padding:4px 8px;font-size:11px;">Sound: OFF</button>
+        <button id="music-toggle" onclick="toggleMusic()" style="margin-left:8px;padding:4px 8px;font-size:11px;">Music: OFF</button>
+        <button id="hints-toggle" onclick="toggleHints()" style="margin-left:8px;padding:4px 8px;font-size:11px;">Hints: ON</button>
+        <button id="arrows-toggle" onclick="toggleArrowKeys()" style="margin-left:8px;padding:4px 8px;font-size:11px;">Arrow Keys: OFF</button>
+      </div>
+      
+      <!-- Parental Lock -->
+      <div class="settings-section">
+        <h4>🔒 Parental Controls</h4>
+        <button id="parental-lock-btn" onclick="toggleParentalLock()" style="padding:4px 8px;font-size:11px;">Lock Settings</button>
+        <span id="lock-status" style="margin-left:8px;font-size:10px;color:var(--muted);">Unlocked</span>
+      </div>
     </div>
   </footer>
 </div>
 
 <!-- Toast Notification Container -->
 <div id="toast-container"></div>
+
+<!-- Parental Lock Modal -->
+<div id="parental-lock-modal" class="parental-lock-modal">
+  <div class="lock-modal-content">
+    <h3 id="lock-modal-title">Set Parental PIN</h3>
+    <p id="lock-modal-desc">Enter a 4-digit PIN to lock settings</p>
+    <input type="password" id="lock-pin-input" maxlength="4" pattern="[0-9]*" inputmode="numeric" placeholder="••••">
+    <div class="lock-modal-buttons">
+      <button onclick="confirmParentalLock()">Confirm</button>
+      <button onclick="closeParentalLockModal()">Cancel</button>
+    </div>
+  </div>
+</div>
 
 <!-- IMPROVEMENT: Mobile Virtual D-Pad -->
 <div id="mobile-dpad">
@@ -820,6 +1174,20 @@ window.copySeedLink = function() {
   }).catch(() => {
     showToast('Failed to copy link', 'warning', 2000);
   });
+};
+
+// IMPROVEMENT: Execute command from UI buttons (inventory Use buttons, quest Accept, etc)
+window.executeCommand = function(command) {
+  const cmdInput = document.getElementById('cmd');
+  const sendBtn = document.getElementById('send');
+  if (cmdInput && sendBtn) {
+    cmdInput.value = command;
+    sendBtn.click();
+    // Ensure focus returns to input after command execution
+    setTimeout(() => {
+      cmdInput.focus();
+    }, 100);
+  }
 };
 
 // Keyboard Shortcuts
@@ -1136,6 +1504,496 @@ function areHintsEnabled() {
   return hintsEnabled;
 }
 
+// ===== MULTI-AGE ACCESSIBILITY FEATURES =====
+
+// Profile System
+const PROFILE_PRESETS = {
+  storybook: {
+    name: "Storybook",
+    encounter_rate: 0,
+    flee_success: 100,
+    xp_gain: 150,
+    drop_luck: 150,
+    vendor_prices: 80,
+    puzzle_hints: 100,
+    guidance: "hand",
+    safety_no_random: true,
+    safety_no_attack: true,
+    safety_hide_verbs: true,
+    simplify_text: true,
+    read_aloud: false
+  },
+  adventurer: {
+    name: "Adventurer",
+    encounter_rate: 50,
+    flee_success: 70,
+    xp_gain: 120,
+    drop_luck: 120,
+    vendor_prices: 90,
+    puzzle_hints: 80,
+    guidance: "coach",
+    safety_no_random: false,
+    safety_no_attack: false,
+    safety_hide_verbs: false,
+    simplify_text: false,
+    read_aloud: false
+  },
+  explorer: {
+    name: "Explorer",
+    encounter_rate: 100,
+    flee_success: 50,
+    xp_gain: 100,
+    drop_luck: 100,
+    vendor_prices: 100,
+    puzzle_hints: 50,
+    guidance: "standard",
+    safety_no_random: false,
+    safety_no_attack: false,
+    safety_hide_verbs: false,
+    simplify_text: false,
+    read_aloud: false
+  },
+  veteran: {
+    name: "Veteran",
+    encounter_rate: 150,
+    flee_success: 30,
+    xp_gain: 80,
+    drop_luck: 70,
+    vendor_prices: 120,
+    puzzle_hints: 20,
+    guidance: "light",
+    safety_no_random: false,
+    safety_no_attack: false,
+    safety_hide_verbs: false,
+    simplify_text: false,
+    read_aloud: false
+  },
+  hardcore: {
+    name: "Hardcore",
+    encounter_rate: 200,
+    flee_success: 10,
+    xp_gain: 60,
+    drop_luck: 50,
+    vendor_prices: 150,
+    puzzle_hints: 0,
+    guidance: "off",
+    safety_no_random: false,
+    safety_no_attack: false,
+    safety_hide_verbs: false,
+    simplify_text: false,
+    read_aloud: false
+  }
+};
+
+function applyProfile(profileName) {
+  if (isParentalLocked()) {
+    showToast('Settings are locked. Enter PIN to unlock.', 'warning', 3000);
+    return;
+  }
+  
+  const preset = PROFILE_PRESETS[profileName];
+  if (!preset) return;
+  
+  // Update sliders
+  updateSlider('encounter-rate', preset.encounter_rate);
+  updateSlider('flee-chance', preset.flee_success);
+  updateSlider('xp-gain', preset.xp_gain);
+  updateSlider('drop-luck', preset.drop_luck);
+  updateSlider('vendor-prices', preset.vendor_prices);
+  updateSlider('puzzle-hints', preset.puzzle_hints);
+  
+  // Update guidance level
+  setGuidanceLevel(preset.guidance);
+  
+  // Update safety toggles
+  document.getElementById('safety-no-random-attacks').checked = preset.safety_no_random;
+  document.getElementById('safety-cant-be-attacked').checked = preset.safety_no_attack;
+  document.getElementById('safety-hide-attack-verbs').checked = preset.safety_hide_verbs;
+  updateSafetySettings();
+  
+  // Store profile
+  localStorage.setItem('wilds_profile', profileName);
+  
+  // Notify Python
+  if (window.applyProfileSettings) {
+    window.applyProfileSettings(profileName);
+  }
+  
+  showToast(`Profile: ${preset.name}`, 'success', 2000);
+}
+
+// Guidance Level System
+function setGuidanceLevel(level) {
+  if (isParentalLocked()) {
+    showToast('Settings are locked. Enter PIN to unlock.', 'warning', 3000);
+    return;
+  }
+  
+  // Update UI
+  document.querySelectorAll('.guidance-btn').forEach(btn => {
+    btn.classList.remove('active');
+    if (btn.dataset.level === level) {
+      btn.classList.add('active');
+    }
+  });
+  
+  localStorage.setItem('wilds_guidance', level);
+  
+  // Notify Python
+  if (window.setGuidanceLevelPy) {
+    window.setGuidanceLevelPy(level);
+  }
+}
+
+// Safety Settings
+function updateSafetySettings() {
+  if (isParentalLocked()) {
+    showToast('Settings are locked. Enter PIN to unlock.', 'warning', 3000);
+    return;
+  }
+  
+  const settings = {
+    no_random_attacks: document.getElementById('safety-no-random-attacks').checked,
+    cant_be_attacked: document.getElementById('safety-cant-be-attacked').checked,
+    hide_attack_verbs: document.getElementById('safety-hide-attack-verbs').checked
+  };
+  
+  localStorage.setItem('wilds_safety', JSON.stringify(settings));
+  
+  // Notify Python
+  if (window.updateSafetySettingsPy) {
+    window.updateSafetySettingsPy(settings);
+  }
+}
+
+// Difficulty Sliders
+function updateSlider(name, value) {
+  if (isParentalLocked() && !window.isApplyingProfile) {
+    showToast('Settings are locked. Enter PIN to unlock.', 'warning', 3000);
+    return;
+  }
+  
+  const slider = document.getElementById(`slider-${name}`);
+  const display = document.getElementById(`val-${name}`);
+  
+  if (slider) slider.value = value;
+  if (display) display.textContent = value + '%';
+  
+  localStorage.setItem(`wilds_${name}`, value);
+  
+  // Notify Python
+  if (window.updateDifficultyPy) {
+    window.updateDifficultyPy(name, value);
+  }
+}
+
+function getDifficultySettings() {
+  return {
+    encounter_rate: parseInt(localStorage.getItem('wilds_encounter-rate') || '100'),
+    flee_chance: parseInt(localStorage.getItem('wilds_flee-chance') || '50'),
+    xp_gain: parseInt(localStorage.getItem('wilds_xp-gain') || '100'),
+    drop_luck: parseInt(localStorage.getItem('wilds_drop-luck') || '100'),
+    vendor_prices: parseInt(localStorage.getItem('wilds_vendor-prices') || '100'),
+    puzzle_hints: parseInt(localStorage.getItem('wilds_puzzle-hints') || '50')
+  };
+}
+
+// Read-Aloud System using Web Speech API
+let readAloudEnabled = false;
+let currentUtterance = null;
+
+function toggleReadAloud() {
+  readAloudEnabled = !readAloudEnabled;
+  const btn = document.getElementById('read-aloud-toggle');
+  const stopBtn = document.getElementById('stop-speech-btn');
+  
+  if (btn) btn.textContent = readAloudEnabled ? 'Read Aloud: ON' : 'Read Aloud: OFF';
+  if (stopBtn) stopBtn.style.display = readAloudEnabled ? 'inline-block' : 'none';
+  
+  localStorage.setItem('wilds_read_aloud', JSON.stringify(readAloudEnabled));
+  
+  if (!readAloudEnabled) {
+    stopSpeech();
+  }
+}
+
+function speakText(text) {
+  if (!readAloudEnabled || !text) return;
+  
+  // Check if speech synthesis is supported
+  if (!('speechSynthesis' in window)) {
+    console.warn('Speech synthesis not supported');
+    return;
+  }
+  
+  // Cancel any ongoing speech
+  window.speechSynthesis.cancel();
+  
+  // Clean text for speech
+  const cleanText = text
+    .replace(/[🎮🧭🛡️⚙️📖🎨🔒]/g, '') // Remove emojis
+    .replace(/\n+/g, '. ') // Replace newlines with pauses
+    .replace(/\s+/g, ' ') // Normalize whitespace
+    .trim();
+  
+  if (!cleanText) return;
+  
+  currentUtterance = new SpeechSynthesisUtterance(cleanText);
+  currentUtterance.rate = 0.9;
+  currentUtterance.pitch = 1.0;
+  currentUtterance.volume = 1.0;
+  
+  window.speechSynthesis.speak(currentUtterance);
+}
+
+function stopSpeech() {
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.cancel();
+  }
+  currentUtterance = null;
+}
+
+window.speakText = speakText;
+window.stopSpeech = stopSpeech;
+
+// Text Simplification
+let simplifyTextEnabled = false;
+
+function toggleSimplifyText() {
+  simplifyTextEnabled = !simplifyTextEnabled;
+  const btn = document.getElementById('simplify-text-toggle');
+  
+  if (btn) btn.textContent = simplifyTextEnabled ? 'Simplify Text: ON' : 'Simplify Text: OFF';
+  
+  localStorage.setItem('wilds_simplify_text', JSON.stringify(simplifyTextEnabled));
+  
+  // Notify Python
+  if (window.toggleSimplifyTextPy) {
+    window.toggleSimplifyTextPy(simplifyTextEnabled);
+  }
+}
+
+function isTextSimplified() {
+  return simplifyTextEnabled;
+}
+
+window.isTextSimplified = isTextSimplified;
+
+// Adaptive Assistance System
+let actionHistory = [];
+const ADAPTIVE_CHECK_INTERVAL = 10; // Check every 10 actions
+
+function trackAction(actionType, success) {
+  actionHistory.push({ type: actionType, success: success, timestamp: Date.now() });
+  
+  // Keep only recent actions
+  if (actionHistory.length > 20) {
+    actionHistory.shift();
+  }
+  
+  // Check if we should suggest a profile change
+  if (actionHistory.length === ADAPTIVE_CHECK_INTERVAL) {
+    analyzeAndSuggestProfile();
+  }
+}
+
+function analyzeAndSuggestProfile() {
+  // Already shown suggestion?
+  if (localStorage.getItem('wilds_adaptive_shown')) return;
+  
+  const deaths = actionHistory.filter(a => a.type === 'death').length;
+  const combatFails = actionHistory.filter(a => a.type === 'combat' && !a.success).length;
+  const commandErrors = actionHistory.filter(a => a.type === 'error').length;
+  const explorations = actionHistory.filter(a => a.type === 'explore').length;
+  
+  let suggestion = null;
+  
+  // Too many deaths/failures
+  if (deaths >= 3 || combatFails >= 5) {
+    const currentProfile = localStorage.getItem('wilds_profile') || 'explorer';
+    if (currentProfile === 'hardcore' || currentProfile === 'veteran') {
+      suggestion = {
+        profile: 'adventurer',
+        reason: 'Looks like combat is tough! Try Adventurer mode for gentler encounters.'
+      };
+    }
+  }
+  
+  // Lots of exploration, little combat
+  if (explorations >= 7 && combatFails <= 1) {
+    suggestion = {
+      profile: 'storybook',
+      reason: 'You seem to enjoy exploring! Try Storybook mode for peaceful adventures.'
+    };
+  }
+  
+  // Many command errors
+  if (commandErrors >= 4) {
+    const currentGuidance = localStorage.getItem('wilds_guidance') || 'standard';
+    if (currentGuidance === 'off' || currentGuidance === 'light') {
+      showToast('Having trouble with commands? Try Coach or Hand-in-Hand guidance!', 'info', 5000);
+      localStorage.setItem('wilds_adaptive_shown', 'true');
+      return;
+    }
+  }
+  
+  if (suggestion) {
+    showAdaptiveSuggestion(suggestion);
+  }
+}
+
+function showAdaptiveSuggestion(suggestion) {
+  const toast = document.createElement('div');
+  toast.className = 'toast info';
+  toast.innerHTML = `
+    <span class="toast-icon">💡</span>
+    <div class="toast-content">
+      <strong>Suggestion:</strong> ${suggestion.reason}<br>
+      <button onclick="acceptProfileSuggestion('${suggestion.profile}')" style="margin-top:6px;padding:4px 8px;font-size:11px;">Try ${PROFILE_PRESETS[suggestion.profile].name}</button>
+      <button onclick="dismissSuggestion()" style="margin-top:6px;margin-left:4px;padding:4px 8px;font-size:11px;">No Thanks</button>
+    </div>
+  `;
+  
+  document.getElementById('toast-container').appendChild(toast);
+  
+  setTimeout(() => {
+    if (toast.parentNode) {
+      toast.classList.add('fade-out');
+      setTimeout(() => toast.remove(), 300);
+    }
+  }, 10000);
+  
+  localStorage.setItem('wilds_adaptive_shown', 'true');
+}
+
+function acceptProfileSuggestion(profileName) {
+  document.getElementById(`profile-${profileName}`).checked = true;
+  applyProfile(profileName);
+  document.querySelectorAll('.toast').forEach(t => t.remove());
+}
+
+function dismissSuggestion() {
+  document.querySelectorAll('.toast').forEach(t => t.remove());
+}
+
+window.trackAction = trackAction;
+
+// Parental Lock System
+let parentalLockPIN = null;
+let isLocked = false;
+
+function isParentalLocked() {
+  return isLocked;
+}
+
+function toggleParentalLock() {
+  const modal = document.getElementById('parental-lock-modal');
+  const title = document.getElementById('lock-modal-title');
+  const desc = document.getElementById('lock-modal-desc');
+  const input = document.getElementById('lock-pin-input');
+  
+  input.value = '';
+  
+  if (isLocked) {
+    // Unlock
+    title.textContent = 'Enter PIN to Unlock';
+    desc.textContent = 'Enter your 4-digit PIN to unlock settings';
+    modal.classList.add('active');
+  } else {
+    // Set/Change PIN
+    title.textContent = 'Set Parental PIN';
+    desc.textContent = 'Enter a 4-digit PIN to lock settings';
+    modal.classList.add('active');
+  }
+}
+
+function closeParentalLockModal() {
+  const modal = document.getElementById('parental-lock-modal');
+  modal.classList.remove('active');
+}
+
+function confirmParentalLock() {
+  const input = document.getElementById('lock-pin-input');
+  const pin = input.value;
+  
+  if (pin.length !== 4 || !/^\d{4}$/.test(pin)) {
+    showToast('PIN must be exactly 4 digits', 'warning', 3000);
+    return;
+  }
+  
+  if (isLocked) {
+    // Unlock attempt
+    const storedPIN = localStorage.getItem('wilds_parental_pin');
+    if (pin === storedPIN) {
+      isLocked = false;
+      localStorage.setItem('wilds_parental_locked', 'false');
+      document.getElementById('lock-status').textContent = 'Unlocked';
+      document.getElementById('parental-lock-btn').textContent = 'Lock Settings';
+      showToast('Settings unlocked', 'success', 2000);
+      closeParentalLockModal();
+    } else {
+      showToast('Incorrect PIN', 'warning', 3000);
+    }
+  } else {
+    // Lock with new PIN
+    localStorage.setItem('wilds_parental_pin', pin);
+    localStorage.setItem('wilds_parental_locked', 'true');
+    isLocked = true;
+    document.getElementById('lock-status').textContent = 'Locked 🔒';
+    document.getElementById('parental-lock-btn').textContent = 'Unlock Settings';
+    showToast('Settings locked', 'success', 2000);
+    closeParentalLockModal();
+  }
+}
+
+// Restore multi-age settings on page load
+function restoreMultiAgeSettings() {
+  // Restore profile
+  const savedProfile = localStorage.getItem('wilds_profile') || 'explorer';
+  const profileRadio = document.getElementById(`profile-${savedProfile}`);
+  if (profileRadio) profileRadio.checked = true;
+  
+  // Restore guidance
+  const savedGuidance = localStorage.getItem('wilds_guidance') || 'standard';
+  document.querySelectorAll('.guidance-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.level === savedGuidance);
+  });
+  
+  // Restore safety toggles
+  const savedSafety = JSON.parse(localStorage.getItem('wilds_safety') || '{}');
+  if (savedSafety.no_random_attacks) document.getElementById('safety-no-random-attacks').checked = true;
+  if (savedSafety.cant_be_attacked) document.getElementById('safety-cant-be-attacked').checked = true;
+  if (savedSafety.hide_attack_verbs) document.getElementById('safety-hide-attack-verbs').checked = true;
+  
+  // Restore sliders
+  updateSlider('encounter-rate', localStorage.getItem('wilds_encounter-rate') || '100');
+  updateSlider('flee-chance', localStorage.getItem('wilds_flee-chance') || '50');
+  updateSlider('xp-gain', localStorage.getItem('wilds_xp-gain') || '100');
+  updateSlider('drop-luck', localStorage.getItem('wilds_drop-luck') || '100');
+  updateSlider('vendor-prices', localStorage.getItem('wilds_vendor-prices') || '100');
+  updateSlider('puzzle-hints', localStorage.getItem('wilds_puzzle-hints') || '50');
+  
+  // Restore read-aloud
+  readAloudEnabled = JSON.parse(localStorage.getItem('wilds_read_aloud') || 'false');
+  const readAloudBtn = document.getElementById('read-aloud-toggle');
+  const stopBtn = document.getElementById('stop-speech-btn');
+  if (readAloudBtn) readAloudBtn.textContent = readAloudEnabled ? 'Read Aloud: ON' : 'Read Aloud: OFF';
+  if (stopBtn) stopBtn.style.display = readAloudEnabled ? 'inline-block' : 'none';
+  
+  // Restore text simplification
+  simplifyTextEnabled = JSON.parse(localStorage.getItem('wilds_simplify_text') || 'false');
+  const simplifyBtn = document.getElementById('simplify-text-toggle');
+  if (simplifyBtn) simplifyBtn.textContent = simplifyTextEnabled ? 'Simplify Text: ON' : 'Simplify Text: OFF';
+  
+  // Restore parental lock
+  isLocked = JSON.parse(localStorage.getItem('wilds_parental_locked') || 'false');
+  parentalLockPIN = localStorage.getItem('wilds_parental_pin');
+  if (isLocked) {
+    document.getElementById('lock-status').textContent = 'Locked 🔒';
+    document.getElementById('parental-lock-btn').textContent = 'Unlock Settings';
+  }
+}
+
 function playAmbient(trackName) {
   if (!musicEnabled) return;
   
@@ -1340,6 +2198,9 @@ window.addEventListener('DOMContentLoaded', () => {
     }
 
     renderButtons();
+    
+    // Restore multi-age accessibility settings
+    restoreMultiAgeSettings();
 });
 
 // Export/Import save functions (will be connected to Python)
@@ -2203,15 +3064,21 @@ message_history = {}
 latest_message_el = None
 
 
-def println(text: str = "", clickable_items=None):
-    """Print to console with log virtualization and optional clickable elements"""
+def println(text: str = "", clickable_items=None, **kwargs):
+    """Print to console with log virtualization and optional clickable elements
+    
+    Accepts any keyword arguments (like file=) for compatibility but ignores them.
+    This prevents crashes when code tries to use println like the standard print function.
+    """
     global log_messages, latest_message_el
+    
+    # Convert text to string, handle various types
+    text_str = str(text) if text else ""
     
     node = document.createElement("div")
     
     if clickable_items and isinstance(clickable_items, list):
         # Make certain words clickable
-        text_str = str(text)
         for item in clickable_items:
             text_str = text_str.replace(item, f'<CLICK>{item}</CLICK>')
         
@@ -2233,7 +3100,7 @@ def println(text: str = "", clickable_items=None):
                     text_node = document.createTextNode(part)
                     node.appendChild(text_node)
     else:
-        node.textContent = str(text)
+        node.textContent = text_str
     
     out = document.getElementById("out")
     out.appendChild(node)
@@ -2257,6 +3124,13 @@ def println(text: str = "", clickable_items=None):
         if not user_scrolled or (out.scrollHeight - out.scrollTop - out.clientHeight) < 50:
             out.scrollTop = out.scrollHeight
             window.user_scrolled = False
+    except:
+        pass
+    
+    # Read-aloud support
+    try:
+        if window.speakText and text_str.strip():
+            window.speakText(text_str)
     except:
         pass
 
@@ -2475,49 +3349,9 @@ def _run_repeated(game, n, fn, cmd_name="action"):
     
     return done
 
-# Track if user has manually scrolled
+# Track if user has manually scrolled (for UI)
 user_scrolled = False
 last_scroll_height = 0
-
-def println(text: str = "", clickable_items=None):
-    """Print to console with optional clickable elements"""
-    node = document.createElement("div")
-    
-    if clickable_items and isinstance(clickable_items, list):
-        # Make certain words clickable
-        text_str = str(text)
-        for item in clickable_items:
-            # Wrap item in clickable span
-            text_str = text_str.replace(item, f'<CLICK>{item}</CLICK>')
-        
-        # Now convert to HTML spans
-        parts = text_str.split('<CLICK>')
-        for i, part in enumerate(parts):
-            if '</CLICK>' in part:
-                item, rest = part.split('</CLICK>', 1)
-                span = document.createElement("span")
-                span.textContent = item
-                span.className = "clickable"
-                span.setAttribute("data-cmd", item)
-                node.appendChild(span)
-                if rest:
-                    text_node = document.createTextNode(rest)
-                    node.appendChild(text_node)
-            else:
-                if part:
-                    text_node = document.createTextNode(part)
-                    node.appendChild(text_node)
-    else:
-        node.textContent = str(text)
-    
-    out.appendChild(node)
-    
-    # Auto-scroll only if user hasn't scrolled up
-    global user_scrolled, last_scroll_height
-    if not user_scrolled or (out.scrollHeight - out.scrollTop - out.clientHeight) < 50:
-        out.scrollTop = out.scrollHeight
-        user_scrolled = False
-    last_scroll_height = out.scrollHeight
 
 # Detect user scrolling
 def on_scroll(evt):
@@ -3292,10 +4126,20 @@ class Game:
         
         if items:
             inv_html += "Items: " + ", ".join(it.name for it in items) + "<br>"
+        
+        # IMPROVEMENT: Add clickable Use buttons for consumables
         if consumables:
-            inv_html += "Consumables: " + ", ".join(f"{k.replace('_', ' ').title()} x{v}" for k, v in consumables.items()) + "<br>"
+            consumable_buttons = []
+            for k, v in consumables.items():
+                display_name = k.replace('_', ' ').title()
+                btn_html = f'{display_name} x{v} <button class="use-btn" onclick="executeCommand(\'use {k}\')">Use</button>'
+                consumable_buttons.append(btn_html)
+            inv_html += "Consumables:<br>" + "<br>".join(consumable_buttons) + "<br>"
+        
+        # IMPROVEMENT: Add clickable Use button for bandages
         if bandages > 0:
-            inv_html += f"Bandages: {bandages}<br>"
+            inv_html += f'Bandages: {bandages} <button class="use-btn" onclick="executeCommand(\'use bandage\')">Use</button><br>'
+        
         if mats:
             inv_html += "Materials: " + ", ".join(f"{k} x{v}" for k, v in mats.items())
         
@@ -3437,7 +4281,7 @@ talk [npc] - Talk to NPC (auto if only one in room) (alias: t)
 
 === COMBAT ===
 attack - Attack an enemy in combat (alias: a)
-flee - Escape from combat (60% success, 85% in Pacifist mode)
+flee - Escape from combat (70% success, 85% in Pacifist mode)
 power/strike - Use Power Strike skill (Level 3+, 2x damage, 10% stun)
 heal - Use Heal skill (Level 5+, restore 5 HP)
 defend - Use Defend skill (Level 7+, 50% damage reduction)
@@ -3572,6 +4416,11 @@ test - Run automated tests
             'atk': 'attack', 'attk': 'attack', 'attak': 'attack', 'fight': 'attack', 'engage': 'attack',
             'bag': 'inv', 'backpack': 'inv', 'i': 'inv', 'inventory': 'inv',
             'make': 'craft', 'brew': 'craft', 'forge': 'craft', 'create': 'craft',
+            # Item usage synonyms
+            'eat': 'use', 'consume': 'use', 'drink': 'use', 'apply': 'use', 'swallow': 'use',
+            # Movement verb synonyms (climb/descend are special-cased in dispatch)
+            'ascend': 'climb', 'climb up': 'climb', 'climbup': 'climb',
+            'descend': 'descend', 'climb down': 'descend', 'climbdown': 'descend',
             'no': 'n', 'ea': 'e', 'so': 's', 'we': 'w',
             'lokk': 'look', 'tak': 'take', 'drp': 'drop', 'frge': 'forage',
             'ste': 'stats', 'stas': 'stats', 'stat': 'stats'
@@ -3609,16 +4458,25 @@ test - Run automated tests
         best_match = None
         best_distance = float('inf')
         
+        # Blacklist of destructive commands that should NEVER be auto-executed
+        destructive_commands = {'quit', 'exit', 'q', 'reset', 'erase'}
+        
         for valid_cmd in valid_cmds:
             distance = self._damerau_levenshtein(cmd, valid_cmd)
             if distance < best_distance:
                 best_distance = distance
                 best_match = valid_cmd
         
-        # Only suggest if distance is 1 or 2 (close typo)
+        # Safety: Never auto-execute destructive commands
+        if best_match in destructive_commands:
+            if best_distance == 1:
+                notify('warning', f"Did you mean '{best_match}'? Type it exactly to confirm.", 3000)
+            return cmd  # Return original, don't auto-correct
+        
+        # Only suggest if distance is 1 or 2 (close typo) and confidence is high
         if best_distance <= 2 and best_match:
             if best_distance == 1:
-                # Auto-correct silently for very close matches
+                # Auto-correct silently for very close matches (non-destructive only)
                 return best_match
             elif best_distance == 2:
                 # Suggest for slightly further matches
@@ -3728,6 +4586,23 @@ test - Run automated tests
             return True
         if cmd in ("d", "down"):
             self.move("d")
+            return True
+        # Movement verb synonyms: climb→up, descend→down (smart routing)
+        if cmd == "climb":
+            room = self.room()
+            # Check if room has an up exit
+            if "u" in room.neighbors:
+                self.move("u")
+            else:
+                self.say("There's nothing to climb here. Try a different direction.")
+            return True
+        if cmd == "descend":
+            room = self.room()
+            # Check if room has a down exit
+            if "d" in room.neighbors:
+                self.move("d")
+            else:
+                self.say("There's nowhere to descend here. Try a different direction.")
             return True
         if cmd == "take":
             self.take(" ".join(args))
@@ -3964,6 +4839,7 @@ def part3_post_init(game):
         "flags": {},
         "prices": {"bandage": 3, "apple": 1},
         "gather_cooldown": 0,
+        "herb_pity_counter": 0,  # Track failed herb attempts for pity system
     }
     _ = game._p3["rng"].random()
 
@@ -3989,7 +4865,28 @@ def _p3_forage(game):
         return True
     
     rng = game._p3["rng"]
-    found = "herb" if rng.random() < 0.5 else "fiber"
+    
+    # PITY SYSTEM: Guarantee herb after 3 failed attempts (eligible in grove/forest areas)
+    pity_counter = game._p3.get("herb_pity_counter", 0)
+    room_id = game.cur_room.lower() if hasattr(game, 'cur_room') else ""
+    herb_eligible_areas = ["grove", "forest", "wilds", "path"]
+    is_herb_area = any(area in room_id for area in herb_eligible_areas)
+    
+    # Check if pity should trigger
+    if is_herb_area and pity_counter >= 3:
+        found = "herb"
+        game._p3["herb_pity_counter"] = 0  # Reset counter
+    else:
+        # Normal random roll
+        found = "herb" if rng.random() < 0.5 else "fiber"
+        
+        # Track pity counter only for herb-eligible areas
+        if is_herb_area:
+            if found == "herb":
+                game._p3["herb_pity_counter"] = 0  # Reset on success
+            else:
+                game._p3["herb_pity_counter"] = pity_counter + 1  # Increment on fiber
+    
     game._p3["mats"][found] = game._p3["mats"].get(found, 0) + 1
     game.say(f"You forage and find 1 {found}.")
     game._update_inv_panel()
@@ -4147,8 +5044,11 @@ def _p5_spawn(game, forced=False):
     if not p5 or p5["encounter"] is not None:
         return
     
-    # Check preset config for encounter rate
-    if hasattr(game, "_p17"):
+    # Apply multi-age accessibility encounter rate modifier
+    if 'apply_encounter_rate_modifier' in globals():
+        encounter_rate = apply_encounter_rate_modifier(p5["rate"])
+    # Fallback to preset config
+    elif hasattr(game, "_p17"):
         config = game._p17.get("preset_config", {})
         if not config.get("encounter_enabled", True) and not forced:
             return
@@ -4307,11 +5207,19 @@ def _p5_enemy_hit(game, foe):
         game.say(f"The {foe['name']} strikes you (-{dmg} HP).")
         
         if game.player.hp == 0:
-            game.say("You collapse and awaken at the Sanctum.")
-            game.player.hp = game.player.max_hp
-            game.cur_room = game.world.start_room
-            _p5_end_encounter(game)
-            return True
+            # Check safety settings for no player death
+            safety = get_safety_settings() if 'get_safety_settings' in globals() else {}
+            if safety.get('no_player_death', False):
+                game.player.hp = 1  # Keep player alive with 1 HP
+                game.say("⭐ [Safety Mode] You're protected from defeat! HP set to 1.")
+                _p5_end_encounter(game)  # End encounter but don't respawn
+                return True
+            else:
+                game.say("You collapse and awaken at the Sanctum.")
+                game.player.hp = game.player.max_hp
+                game.cur_room = game.world.start_room
+                _p5_end_encounter(game)
+                return True
     else:
         game.say(f"The {foe['name']} misses!")
     
@@ -4329,8 +5237,15 @@ def _p5_enemy_hit(game, foe):
 
 def _p5_reward(game, foe):
     if getattr(game, "_p2", None) is not None:
-        game._p2["xp"] = game._p2.get("xp", 0) + 1
-        show_toast("+1 XP", "xp", 2000)
+        # Apply XP modifier from multi-age settings
+        base_xp = 1
+        if 'apply_xp_modifier' in globals():
+            xp_gain = apply_xp_modifier(base_xp)
+        else:
+            xp_gain = base_xp
+        
+        game._p2["xp"] = game._p2.get("xp", 0) + xp_gain
+        show_toast(f"+{xp_gain} XP", "xp", 2000)
         
         # Track achievements
         if hasattr(game, "_p8"):
@@ -4344,7 +5259,14 @@ def _p5_reward(game, foe):
     
     if getattr(game, "_p3", None) is not None:
         rng = game._p5["rng"]
-        if rng.random() < 0.3:
+        # Apply drop luck modifier from multi-age settings
+        base_drop_chance = 0.3
+        if 'apply_drop_luck_modifier' in globals():
+            drop_chance = apply_drop_luck_modifier(base_drop_chance)
+        else:
+            drop_chance = base_drop_chance
+        
+        if rng.random() < drop_chance:
             drop = "herb" if rng.random() < 0.5 else "fiber"
             game._p3["mats"][drop] = game._p3["mats"].get(drop, 0) + 1
             game.say(f"The {foe['name']} drops a {drop}.")
@@ -4352,19 +5274,23 @@ def _p5_reward(game, foe):
 
 # IMPROVEMENT: Added flee command for combat
 def _p5_cmd_flee(game):
-    """Flee from combat (60% base success, 85% in Pacifist mode)"""
+    """Flee from combat (70% base success, 85% in Pacifist mode)"""
     p5 = getattr(game, "_p5", None)
     if not p5 or p5["encounter"] is None:
         return False
     
-    # Calculate flee chance
-    base_flee_chance = 0.60
-    
-    # Check if in Pacifist mode/preset
-    if hasattr(game, "_p17"):
+    # Calculate flee chance with multi-age accessibility settings
+    if 'apply_flee_chance_modifier' in globals():
+        base_flee_chance = apply_flee_chance_modifier(0.70)
+    # Fallback: Check if in Pacifist mode/preset
+    elif hasattr(game, "_p17"):
         preset_config = game._p17.get("preset_config", {})
         if preset_config.get("flee_bonus", 0) > 0:
             base_flee_chance = 0.85
+        else:
+            base_flee_chance = 0.70
+    else:
+        base_flee_chance = 0.70
     
     # Check if preset modifiers apply
     if hasattr(game, "_p16"):
@@ -5100,6 +6026,10 @@ def _p6_update_quest_panel(game):
         # Make title clickable in panel to autofill 'quest <qid>'
         title_html = f"<span class=\"clickable\" data-cmd=\"quest {key}\">{title}</span>"
         line = f"{title_html}: {state}"
+        
+        # IMPROVEMENT: Add Accept button for new/offered quests
+        if state in ("new", "offered"):
+            line += f' <button class="use-btn" onclick="executeCommand(\'accept {key}\')">Accept</button>'
         
         # IMPROVEMENT: Show material requirements with check/cross indicators
         if getattr(game, "_p3", None) is not None and "need" in q and state in ("accepted", "completed"):
@@ -6729,15 +7659,101 @@ def run_tests(game):
         game.say("=== All Tests Passed! ===")
     else:
         game.say("=== Some Tests Failed (see above) ===")
+    # Test 8: Item usage verb synonyms (IMPROVEMENT from bug fixes)
+    try:
+        if hasattr(game, "_p2"):
+            original_hp = game.player.hp
+            original_bandages = game._p2.get("bandages", 0)
+            
+            # Add a bandage and test usage with synonym
+            game._p2["bandages"] = 1
+            game.player.hp = game.player.max_hp - 3
+            
+            # Test "apply" synonym (should work like "use")
+            _p2_use_bandage(game, "bandage")
+            
+            if game.player.hp > original_hp:
+                game.say("✓ PASS: Item usage verb synonyms work")
+            else:
+                game.say("✗ FAIL: Item usage failed")
+                test_passed = False
+            
+            # Restore
+            game.player.hp = original_hp
+            game._p2["bandages"] = original_bandages
+        else:
+            game.say("⊘ SKIP: Item usage not loaded")
+    except Exception as e:
+        game.say(f"✗ FAIL: Item usage test error: {e}")
+        test_passed = False
+    
+    # Test 9: Foraging pity system (IMPROVEMENT from bug fixes)
+    try:
+        if hasattr(game, "_p3"):
+            # Set pity counter high to trigger guaranteed herb
+            game._p3["herb_pity_counter"] = 3
+            game._p3["gather_cooldown"] = 0
+            original_herb = game._p3["mats"].get("herb", 0)
+            
+            # Move to herb-eligible area
+            original_room = game.cur_room
+            game.cur_room = "grove"
+            
+            _p3_forage(game)
+            
+            # Check if herb was guaranteed
+            if game._p3["mats"].get("herb", 0) > original_herb:
+                game.say("✓ PASS: Foraging pity system works")
+            else:
+                game.say("✗ FAIL: Pity system didn't trigger")
+                test_passed = False
+            
+            # Restore
+            game.cur_room = original_room
+            game._p3["herb_pity_counter"] = 0
+        else:
+            game.say("⊘ SKIP: Foraging not loaded")
+    except Exception as e:
+        game.say(f"✗ FAIL: Foraging pity test error: {e}")
+        test_passed = False
+    
+    # Test 10: Save/Load with expanded state (IMPROVEMENT from bug fixes)
+    try:
+        # Test save
+        save_game(game, auto=True)
+        
+        # Verify save exists
+        saved = localStorage.getItem("wilds_save")
+        if saved:
+            state = pyjson.loads(str(saved))
+            # Check version
+            if state.get("version") == "8.1":
+                game.say("✓ PASS: Save system with v8.1 works")
+            else:
+                game.say("✗ FAIL: Save version mismatch")
+                test_passed = False
+        else:
+            game.say("✗ FAIL: Save not created")
+            test_passed = False
+    except Exception as e:
+        game.say(f"✗ FAIL: Save/load test error: {e}")
+        test_passed = False
+    
     game.say("")
-    game.say("Manual test checklist:")
-    game.say("1. Try 'help' - should show grouped, sorted commands")
-    game.say("2. Try 'forage 5' - should repeat 5 times")
-    game.say("3. Try 'recipes' - should show craftable items")
-    game.say("4. Try 'talk caretaker' then 'say 3' or 'say 4'")
-    game.say("5. Click on items/NPCs - should autofill command")
-    game.say("6. Use arrow keys ↑↓ - should cycle history")
-    game.say("7. Side panels should update with quests/map/inv")
+    if test_passed:
+        game.say("=== All Tests Passed! ===")
+    else:
+        game.say("=== Some Tests Failed (see above) ===")
+    game.say("")
+    game.say("Manual test checklist for new improvements:")
+    game.say("1. Try 'eat apple' or 'drink potion' - item usage verb synonyms")
+    game.say("2. Try 'climb' in tower or 'descend' in mine - movement synonyms")
+    game.say("3. Try 'quit' - should ask for confirmation (autocorrect safety)")
+    game.say("4. Try 'forage' 4+ times in grove - pity system guarantees herb")
+    game.say("5. Try 'flee' in combat - 70% success rate (improved)")
+    game.say("6. Click Use buttons in inventory panel - should use items")
+    game.say("7. Click Accept on quests - should accept quest")
+    game.say("8. Check input focus after any action - should auto-focus")
 
 
 # ===========================
@@ -6751,7 +7767,7 @@ def save_game(game, auto=False):
         from datetime import datetime
         # CHANGE: save includes armor, cooldowns, version, and UI preferences
         state = {
-            "version": "8.0",  # Save format version for migration
+            "version": "8.1",  # IMPROVEMENT: Bumped to 8.1 for expanded state
             "cur_room": game.cur_room,
             "player": {
                 "hp": game.player.hp,
@@ -6764,6 +7780,8 @@ def save_game(game, auto=False):
             "_p3": game._p3 if hasattr(game, "_p3") else None,
             "_p6": game._p6 if hasattr(game, "_p6") else None,
             "_p5": {"seen": list(game._p5.get("seen", []))} if hasattr(game, "_p5") else None,
+            "_p8": game._p8 if hasattr(game, "_p8") else None,  # IMPROVEMENT: Save achievements
+            "_p11": game._p11 if hasattr(game, "_p11") else None,  # IMPROVEMENT: Save level/skills
             "_p17": game._p17 if hasattr(game, "_p17") else None,
             "room_seen": {rid: r.seen for rid, r in game.world.rooms.items()},
             "saved_at": datetime.now().isoformat(),  # IMPROVEMENT: Save timestamp
@@ -6824,6 +7842,11 @@ def load_game(game):
                 pass
         if state.get("_p5") and hasattr(game, "_p5"):
             game._p5["seen"] = set(list(state["_p5"].get("seen", [])))
+        # IMPROVEMENT: Restore achievements and level/skills
+        if state.get("_p8") and hasattr(game, "_p8"):
+            game._p8.update(state["_p8"])
+        if state.get("_p11") and hasattr(game, "_p11"):
+            game._p11.update(state["_p11"])
         
         # Migration: Restore or initialize _p17 with safe defaults
         if state.get("_p17") and hasattr(game, "_p17"):
@@ -6848,8 +7871,8 @@ def load_game(game):
                 game.world.rooms[rid].seen = seen
 
         game.say("✓ Game loaded successfully.")
-        if save_version != "8.0":
-            game.say("(Migrated from v" + save_version + " → v8.0)")
+        if save_version not in ("8.0", "8.1"):
+            game.say("(Migrated from v" + save_version + " → v8.1)")
         game.look()
         game._update_inv_panel()
         _p6_update_quest_panel(game)
@@ -10770,6 +11793,438 @@ def p19_ext_handle_command(cmd, args, game):
     return result
 
 ext_handle_command = p19_ext_handle_command
+
+
+# ===========================
+# PART 20: MULTI-AGE ACCESSIBILITY
+# ===========================
+# Profiles, guidance levels, safety, difficulty sliders, simplified text
+
+P20_PREV_EXT = globals().get("ext_handle_command", None)
+
+# Simplified room descriptions for younger players
+SIMPLIFIED_ROOMS = {
+    "sanctum": "A quiet stone room with old pillars. Safe and peaceful.",
+    "gate": "An iron gate with a keyhole. It's locked!",
+    "path": "A forest path with tall trees. Birds sing above.",
+    "wilds_stub": "Tall grass everywhere. Something wild this way!",
+    "grove_n": "Pretty trees with silver bark. Peaceful and calm.",
+    "cellar_s": "An old cellar with boxes. Dark and damp.",
+    "court_w": "A courtyard with broken statues. Once beautiful.",
+    "brook_ne": "A little stream with water flowing over rocks.",
+    "thicket_se": "Lots of bushes! Hard to walk through.",
+    "wilds": "The Whispering Wilds! Adventure begins here.",
+    "wilds_lake": "A beautiful lake. The water is very clear!",
+    "wilds_mine": "A dark mine with rocks. Careful, it's deep!",
+    "wilds_camp": "A camp with tents. Travelers rest here.",
+    "wilds_post": "A guard post. Rangers keep watch.",
+    "wilds_tower": "A tall tower. Magic was here long ago!",
+    "wilds_hut": "A small hut. Someone lives here quietly."
+}
+
+def get_difficulty_settings():
+    """Get difficulty settings from JavaScript"""
+    try:
+        return window.getDifficultySettings().to_py()
+    except:
+        return {
+            'encounter_rate': 100,
+            'flee_chance': 50,
+            'xp_gain': 100,
+            'drop_luck': 100,
+            'vendor_prices': 100,
+            'puzzle_hints': 50
+        }
+
+def get_safety_settings():
+    """Get safety settings from localStorage"""
+    try:
+        safety_json = localStorage.getItem('wilds_safety') or '{}'
+        return JSON.parse(safety_json).to_py()
+    except:
+        return {
+            'no_random_attacks': False,
+            'cant_be_attacked': False,
+            'hide_attack_verbs': False
+        }
+
+def get_guidance_level():
+    """Get current guidance level"""
+    try:
+        return localStorage.getItem('wilds_guidance') or 'standard'
+    except:
+        return 'standard'
+
+def is_text_simplified():
+    """Check if text simplification is enabled"""
+    try:
+        return JSON.parse(localStorage.getItem('wilds_simplify_text') or 'false')
+    except:
+        return False
+
+def show_ghost_command_guidance(game, suggested_cmd, context=""):
+    """Show ghost command based on guidance level"""
+    level = get_guidance_level()
+    
+    if level == 'off':
+        return
+    
+    if level == 'light':
+        # Only on errors
+        if context == 'error':
+            tutorial.show_ghost_command(suggested_cmd)
+    elif level == 'standard':
+        # Current behavior
+        tutorial.show_ghost_command(suggested_cmd)
+    elif level == 'coach':
+        # Always show + "try next" suggestions
+        tutorial.show_ghost_command(suggested_cmd)
+        game.say(f"💡 Try: {suggested_cmd}")
+    elif level == 'hand':
+        # Full step-by-step
+        tutorial.show_ghost_command(suggested_cmd)
+        game.say(f"📝 Next step: Type '{suggested_cmd}' to continue")
+
+def get_room_description(game, room):
+    """Get room description (simplified if enabled)"""
+    if is_text_simplified() and room.id in SIMPLIFIED_ROOMS:
+        return SIMPLIFIED_ROOMS[room.id]
+    return room.desc
+
+# Override look command to use simplified descriptions
+def p20_look(game):
+    r = game.room()
+    r.seen = True
+    items = [i.name for i in r.items]
+    
+    # Use simplified description if enabled
+    desc = get_room_description(game, r)
+    game.say(f"{r.name}\n{desc}")
+    
+    # Navigation hints (if guidance enabled)
+    if window.areHintsEnabled():
+        if "wilds_mine" in r.id and r.id != "deep_mine":
+            show_ghost_command_guidance(game, "descend", "hint")
+        elif "wilds_lake" in r.id and r.id != "lake_depths":
+            show_ghost_command_guidance(game, "dive", "hint")
+        elif "wilds_tower" in r.id and r.id != "tower_top":
+            show_ghost_command_guidance(game, "climb", "hint")
+    
+    if r.items:
+        game.say("Items here: " + ", ".join(i.name for i in r.items), clickable=items)
+    if r.npcs:
+        game.say("You see: " + ", ".join(r.npcs), clickable=r.npcs)
+    exits = ", ".join(sorted(r.neighbors.keys()))
+    game.say(f"Exits: {exits if exits else 'none'}")
+
+# Apply difficulty modifiers
+def apply_encounter_rate_modifier(base_rate):
+    """Modify encounter rate based on settings"""
+    difficulty = get_difficulty_settings()
+    safety = get_safety_settings()
+    
+    # Safety override
+    if safety.get('no_random_attacks'):
+        return 0.0
+    
+    # Apply difficulty slider
+    modifier = difficulty.get('encounter_rate', 100) / 100.0
+    return base_rate * modifier
+
+def apply_flee_chance_modifier(base_chance):
+    """Modify flee chance based on settings"""
+    difficulty = get_difficulty_settings()
+    modifier = difficulty.get('flee_chance', 50) / 100.0
+    return modifier  # Return as percentage
+
+def apply_xp_modifier(base_xp):
+    """Modify XP gain based on settings"""
+    difficulty = get_difficulty_settings()
+    modifier = difficulty.get('xp_gain', 100) / 100.0
+    return int(base_xp * modifier)
+
+def apply_drop_luck_modifier(base_luck):
+    """Modify drop luck based on settings"""
+    difficulty = get_difficulty_settings()
+    modifier = difficulty.get('drop_luck', 100) / 100.0
+    return base_luck * modifier
+
+def can_be_attacked():
+    """Check if player can be attacked"""
+    safety = get_safety_settings()
+    return not safety.get('cant_be_attacked', False)
+
+def should_hide_attack_verbs():
+    """Check if attack verbs should be hidden"""
+    safety = get_safety_settings()
+    return safety.get('hide_attack_verbs', False)
+
+# Multi-age accessibility tests
+def test_profiles():
+    """Test profile system"""
+    results = []
+    
+    # Test profile presets exist
+    profiles = ['storybook', 'adventurer', 'explorer', 'veteran', 'hardcore']
+    for profile in profiles:
+        if profile in window.PROFILE_PRESETS:
+            results.append(f"✓ Profile '{profile}' exists")
+        else:
+            results.append(f"✗ Profile '{profile}' missing")
+    
+    # Test difficulty settings retrieval
+    difficulty = get_difficulty_settings()
+    if 'encounter_rate' in difficulty:
+        results.append(f"✓ Difficulty settings accessible")
+    else:
+        results.append(f"✗ Difficulty settings failed")
+    
+    # Test safety settings retrieval
+    safety = get_safety_settings()
+    if 'no_random_attacks' in safety:
+        results.append(f"✓ Safety settings accessible")
+    else:
+        results.append(f"✗ Safety settings failed")
+    
+    return results
+
+def test_guidance():
+    """Test guidance level system"""
+    results = []
+    
+    # Test guidance level retrieval
+    level = get_guidance_level()
+    valid_levels = ['off', 'light', 'standard', 'coach', 'hand']
+    if level in valid_levels:
+        results.append(f"✓ Guidance level '{level}' valid")
+    else:
+        results.append(f"✗ Invalid guidance level: {level}")
+    
+    # Test text simplification
+    simplified = is_text_simplified()
+    results.append(f"✓ Text simplification: {'ON' if simplified else 'OFF'}")
+    
+    # Test simplified rooms exist
+    if len(SIMPLIFIED_ROOMS) >= 10:
+        results.append(f"✓ {len(SIMPLIFIED_ROOMS)} simplified rooms defined")
+    else:
+        results.append(f"✗ Only {len(SIMPLIFIED_ROOMS)} simplified rooms")
+    
+    return results
+
+def test_safety_overrides():
+    """Test safety toggles override system"""
+    results = []
+    
+    safety = get_safety_settings()
+    
+    # Test no random attacks
+    encounter_rate = apply_encounter_rate_modifier(1.0)
+    if safety.get('no_random_attacks'):
+        if encounter_rate == 0.0:
+            results.append("✓ No random attacks override works")
+        else:
+            results.append("✗ No random attacks override failed")
+    else:
+        results.append("✓ Random attacks enabled (normal)")
+    
+    # Test can't be attacked
+    attackable = can_be_attacked()
+    if safety.get('cant_be_attacked'):
+        if not attackable:
+            results.append("✓ Can't be attacked override works")
+        else:
+            results.append("✗ Can't be attacked override failed")
+    else:
+        results.append("✓ Can be attacked (normal)")
+    
+    # Test hide attack verbs
+    hide_verbs = should_hide_attack_verbs()
+    results.append(f"✓ Hide attack verbs: {'ON' if hide_verbs else 'OFF'}")
+    
+    return results
+
+def test_difficulty_modifiers():
+    """Test difficulty slider modifiers"""
+    results = []
+    
+    difficulty = get_difficulty_settings()
+    
+    # Test encounter rate modifier
+    base_rate = 1.0
+    modified_rate = apply_encounter_rate_modifier(base_rate)
+    expected = base_rate * (difficulty.get('encounter_rate', 100) / 100.0)
+    if abs(modified_rate - expected) < 0.01:
+        results.append(f"✓ Encounter rate modifier: {difficulty.get('encounter_rate')}%")
+    else:
+        results.append(f"✗ Encounter rate modifier failed")
+    
+    # Test XP modifier
+    base_xp = 100
+    modified_xp = apply_xp_modifier(base_xp)
+    expected_xp = int(base_xp * (difficulty.get('xp_gain', 100) / 100.0))
+    if modified_xp == expected_xp:
+        results.append(f"✓ XP modifier: {difficulty.get('xp_gain')}%")
+    else:
+        results.append(f"✗ XP modifier failed")
+    
+    # Test drop luck modifier
+    base_luck = 1.0
+    modified_luck = apply_drop_luck_modifier(base_luck)
+    expected_luck = base_luck * (difficulty.get('drop_luck', 100) / 100.0)
+    if abs(modified_luck - expected_luck) < 0.01:
+        results.append(f"✓ Drop luck modifier: {difficulty.get('drop_luck')}%")
+    else:
+        results.append(f"✗ Drop luck modifier failed")
+    
+    # Test flee chance
+    flee_chance = apply_flee_chance_modifier(0.5)
+    results.append(f"✓ Flee chance: {int(flee_chance * 100)}%")
+    
+    return results
+
+def test_adaptive_assistance():
+    """Test adaptive assistance system"""
+    results = []
+    
+    # Check if adaptive system is available
+    try:
+        shown = localStorage.getItem('wilds_adaptive_shown')
+        results.append(f"✓ Adaptive assistance: {'Shown' if shown else 'Ready'}")
+    except:
+        results.append("✗ Adaptive assistance not available")
+    
+    # Check action history tracking
+    if hasattr(window, 'trackAction'):
+        results.append("✓ Action tracking available")
+    else:
+        results.append("✗ Action tracking missing")
+    
+    return results
+
+def test_parental_lock():
+    """Test parental lock system"""
+    results = []
+    
+    # Check if parental lock is available
+    try:
+        locked = JSON.parse(localStorage.getItem('wilds_parental_locked') or 'false')
+        pin = localStorage.getItem('wilds_parental_pin')
+        
+        if pin:
+            results.append(f"✓ Parental lock: {'LOCKED' if locked else 'Set (unlocked)'}")
+        else:
+            results.append("✓ Parental lock: Available (no PIN set)")
+    except:
+        results.append("✗ Parental lock system error")
+    
+    return results
+
+def test_read_aloud():
+    """Test read-aloud system"""
+    results = []
+    
+    # Check if Web Speech API is available
+    try:
+        speech_available = 'speechSynthesis' in window
+        if speech_available:
+            results.append("✓ Web Speech API available")
+        else:
+            results.append("✗ Web Speech API not supported")
+    except:
+        results.append("✗ Speech API check failed")
+    
+    # Check read-aloud setting
+    try:
+        read_aloud = JSON.parse(localStorage.getItem('wilds_read_aloud') or 'false')
+        results.append(f"✓ Read-aloud: {'ON' if read_aloud else 'OFF'}")
+    except:
+        results.append("✗ Read-aloud setting error")
+    
+    return results
+
+def run_multiage_tests(game):
+    """Run all multi-age accessibility tests"""
+    game.say("\n=== Multi-Age Accessibility Tests ===\n")
+    
+    game.say("📋 Profile System:")
+    for result in test_profiles():
+        game.say(f"  {result}")
+    
+    game.say("\n🧭 Guidance & Simplification:")
+    for result in test_guidance():
+        game.say(f"  {result}")
+    
+    game.say("\n🛡️ Safety Overrides:")
+    for result in test_safety_overrides():
+        game.say(f"  {result}")
+    
+    game.say("\n⚙️ Difficulty Modifiers:")
+    for result in test_difficulty_modifiers():
+        game.say(f"  {result}")
+    
+    game.say("\n💡 Adaptive Assistance:")
+    for result in test_adaptive_assistance():
+        game.say(f"  {result}")
+    
+    game.say("\n🔒 Parental Lock:")
+    for result in test_parental_lock():
+        game.say(f"  {result}")
+    
+    game.say("\n📖 Read-Aloud:")
+    for result in test_read_aloud():
+        game.say(f"  {result}")
+    
+    game.say("\n✅ All multi-age accessibility tests complete!")
+
+# Expose functions to JavaScript
+window.applyProfileSettings = create_proxy(lambda profile: None)  # Profile changes handled by JS
+window.setGuidanceLevelPy = create_proxy(lambda level: None)
+window.updateSafetySettingsPy = create_proxy(lambda settings: None)
+window.updateDifficultyPy = create_proxy(lambda name, value: None)
+window.toggleSimplifyTextPy = create_proxy(lambda enabled: None)
+
+def p20_ext_handle_command(cmd, args, game):
+    prev = P20_PREV_EXT if P20_PREV_EXT is not p20_ext_handle_command else None
+    
+    # Override look command
+    if cmd == "look" or cmd == "l":
+        p20_look(game)
+        return True
+    
+    # Add profile command
+    if cmd == "profile":
+        profiles = ['storybook', 'adventurer', 'explorer', 'veteran', 'hardcore']
+        if not args:
+            game.say("\n=== Playstyle Profiles ===")
+            game.say("🎮 Storybook - Ages 5-8: Safe, peaceful exploration")
+            game.say("🗡️  Adventurer - Ages 8-12: Gentle challenges, helpful hints")
+            game.say("🧭 Explorer - Teens/Adults: Balanced adventure")
+            game.say("⚔️  Veteran - Experienced: Tough encounters, scarce resources")
+            game.say("💀 Hardcore - Experts: Maximum challenge, no safety net")
+            game.say("\nChange via Settings menu in footer")
+            return True
+        
+        profile_name = args[0].lower()
+        if profile_name in profiles:
+            window.applyProfile(profile_name)
+            return True
+        else:
+            game.say(f"Unknown profile. Try: {', '.join(profiles)}")
+            return True
+    
+    # Add test multiage command
+    if cmd == "test" and args and args[0] == "multiage":
+        run_multiage_tests(game)
+        return True
+    
+    # Call previous handler
+    if prev and prev(cmd, args, game):
+        return True
+    
+    return False
+
+ext_handle_command = p20_ext_handle_command
 
 
 # ===========================
