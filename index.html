@@ -25,6 +25,55 @@
   - Reorganized help into logical sections
   - Added first-time tip system
   - Added auto-save/load with JSON export/import
+  - Added toast notification system for XP gains, level-ups, and micro-goals
+  - Implemented duplicate message detection to reduce spam (10s window)
+  - XP gains now show as non-intrusive toasts in top-right corner
+  - Micro-goal announcements use toasts with duplicate consolidation (×N format)
+  
+  ===== v7 ENHANCEMENTS (Oct 9, 2025) =====
+  - Added Dev Mode visibility toggle (hide custom buttons by default, persist state)
+  - Implemented responsive Mobile/Desktop mode with auto-detection (<800px viewport)
+  - Mobile-optimized UI: vertical button stacking, larger touch targets, bottom-center toasts
+  - Added toast routing system notify(kind, msg) for cleaner notification management
+  - Implemented fuzzy command dispatcher with synonym mapping (walk→go, grab→take, etc.)
+  - Added Damerau-Levenshtein typo correction for 1-2 character mistakes
+  - Toggleable audio system with ambient loops and event cues (Sound/Music controls)
+  - Accessibility: Line-height 1.7 in compact mode, dyslexic-friendly font toggle
+  - Enhanced toast types: xp, success, info, warning with appropriate icons
+  - Command synonyms: 40+ variations including atk→attack, bag→inv, make→craft
+  
+  ===== v8 FINAL GAMEPLAY PASS (Oct 9, 2025) =====
+  - Branching narratives: story_flags system with begin_scene/choose/end_scene helpers
+  - New questlines: "Echoes at the Lake" (moral choice) & "The Hermit's Riddle" (puzzle)
+  - Expanded bestiary: 4 new creatures + 2 mini-bosses with traits (thorns, flying, slow)
+  - Mini-boss rare spawns (≤5% chance) with special toast notifications
+  - Enhanced bestiary command shows detailed stats, traits, and drop info
+  - Location-weighted gathering: Grove→herbs, Mine→ore, Lake→fish, etc.
+  - Added sense command for biome-specific gathering hints (cooldown-gated)
+  - Alternative crafting: Lesser Potion (1 herb + 1 fiber)
+  - Categorized inventory: Items/Consumables/Materials/Quest with stacking
+  - Inventory sorting: alpha/type/newest modes via sort command
+  - Playstyle presets: Explorer/Hunter/Cozy/Hardcore with mode command
+  - Settings command shows current preset configuration
+  - Verbosity levels: quiet/normal/verbose to control message output
+  - dive→down alias at water locations with smart error messaging
+  - Preset modifiers: encounter rates, XP bonuses, drop chances, craft yields, encumbrance
+  - All new commands documented in updated help with clear sections
+  
+  ===== v8 FINAL FIXES (Oct 10, 2025) =====
+  - Standardized cooldown messaging: unified "Wait X more actions" format across all gathering
+  - One-time localStorage-persisted cooldown tip toast (respects hints toggle)
+  - Room navigation hints: Abandoned Mine (descend), Moonlit Lake (dive), Watchtower (climb)
+  - Power Strike 10% stun chance: stunned enemies skip their next turn
+  - Combat status display: bracketed tags [BLEEDING], [STUNNED] shown after each round
+  - Updated help documentation with combat mechanics and cooldown explanations
+  
+  ===== v9 UI IMPROVEMENTS (Oct 10, 2025) =====
+  - Collapsible Settings menu: Click "Settings" to expand/collapse options (saves space)
+  - Arrow Keys toggle: Control mobile D-pad visibility (default OFF, less clutter)
+  - Hints toggle now controls navigation hints: Turn off to hide room navigation suggestions
+  - All settings persist in localStorage across sessions
+  - Settings area collapsed by default for cleaner footer
   
   ===== DEV NOTES =====
   - Runs on PyScript 2024.6.1 (Pyodide in-browser Python)
@@ -42,13 +91,49 @@
   <meta name="theme-color" content="#0f172a"/>
 
   <style>
-    :root { 
+    /* Theme Variables - Dark Forest (default) */
+    :root[data-theme="dark"] { 
       --bg:#0b0f1a; 
       --fg:#e5e7eb; 
       --muted:#94a3b8; 
       --accent:#38bdf8;
       --border:#1f2937;
       --panel-bg:#0a0e19;
+      --panel-hover:#0f1419;
+      --toast-shadow: rgba(0,0,0,0.5);
+      --tip-bg: #1e3a5f;
+      --tip-border: #2563eb;
+      --tip-title: #60a5fa;
+    }
+    
+    /* Light Meadow Theme */
+    :root[data-theme="light"] {
+      --bg:#f5f7fa;
+      --fg:#1a202c;
+      --muted:#4a5568;
+      --accent:#2563eb;
+      --border:#cbd5e0;
+      --panel-bg:#ffffff;
+      --panel-hover:#f1f5f9;
+      --toast-shadow: rgba(0,0,0,0.15);
+      --tip-bg: #dbeafe;
+      --tip-border: #3b82f6;
+      --tip-title: #1e40af;
+    }
+    
+    /* Default to dark theme */
+    :root {
+      --bg:#0b0f1a; 
+      --fg:#e5e7eb; 
+      --muted:#94a3b8; 
+      --accent:#38bdf8;
+      --border:#1f2937;
+      --panel-bg:#0a0e19;
+      --panel-hover:#0f1419;
+      --toast-shadow: rgba(0,0,0,0.5);
+      --tip-bg: #1e3a5f;
+      --tip-border: #2563eb;
+      --tip-title: #60a5fa;
       --font-size:16px;
     }
     
@@ -110,7 +195,7 @@
     }
     
     .panel-header:hover {
-      background:#0f1419;
+      background:var(--panel-hover);
     }
     
     .panel-content {
@@ -183,7 +268,7 @@
     }
     
     button:hover {
-      background:#0f1419;
+      background:var(--panel-hover);
     }
     
     button:active {
@@ -208,8 +293,8 @@
     }
     
     .tip {
-      background:#1e3a5f;
-      border:1px solid #2563eb;
+      background:var(--tip-bg);
+      border:1px solid var(--tip-border);
       border-radius:8px;
       padding:12px;
       margin:8px 0;
@@ -217,8 +302,96 @@
     
     .tip-title {
       font-weight:600;
-      color:#60a5fa;
+      color:var(--tip-title);
       margin-bottom:8px;
+    }
+    
+    /* Toast Notifications */
+    #toast-container {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 9999;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-width: 350px;
+    }
+    
+    .toast {
+      background: var(--panel-bg);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent);
+      border-radius: 8px;
+      padding: 12px 16px;
+      box-shadow: 0 4px 12px var(--toast-shadow);
+      pointer-events: auto;
+      animation: slideIn 0.3s ease-out;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+      color: var(--fg);
+    }
+    
+    .toast.success {
+      border-left-color: #10b981;
+    }
+    
+    .toast.info {
+      border-left-color: #3b82f6;
+    }
+    
+    .toast.warning {
+      border-left-color: #f59e0b;
+    }
+    
+    .toast.xp {
+      border-left-color: #a78bfa;
+    }
+    
+    .toast-icon {
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+    
+    .toast-content {
+      flex: 1;
+    }
+    
+    .toast.fade-out {
+      animation: fadeOut 0.3s ease-out forwards;
+    }
+    
+    @keyframes slideIn {
+      from {
+        transform: translateX(100%);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+    
+    @keyframes fadeOut {
+      from {
+        opacity: 1;
+      }
+      to {
+        opacity: 0;
+        transform: translateX(20px);
+      }
+    }
+    
+    /* Compact Mode - hide sidebar */
+    .container.compact-mode {
+      grid-template-columns: 1fr;
+    }
+    
+    .container.compact-mode aside {
+      display: none;
     }
     
     @media (max-width: 900px) {
@@ -228,23 +401,241 @@
       aside {
         display:none;
       }
+      /* Hide compact mode button on mobile since sidebar is already hidden */
+      #compact-mode-btn {
+        display: none;
+      }
+    }
+    
+    /* Mobile Mode Styles */
+    body.mobile-mode #custom-buttons-area,
+    body.mobile-mode #dev-panel {
+      display: none !important;
+    }
+    
+    body.mobile-mode main {
+      padding: 0.25rem;
+      gap: 0.25rem;
+    }
+    
+    body.mobile-mode #cmd {
+      font-size: 1rem;
+      padding: 8px;
+    }
+    
+    body.mobile-mode #send {
+      padding: 8px 12px;
+      font-size: 14px;
+    }
+    
+    /* Keep input row horizontal on mobile */
+    body.mobile-mode .row:first-of-type {
+      flex-direction: row !important;
+    }
+    
+    /* Make quick buttons compact 2x3 grid */
+    body.mobile-mode .row:nth-of-type(2) {
+      display: grid !important;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.25rem;
+    }
+    
+    body.mobile-mode .row:nth-of-type(2) button {
+      padding: 8px;
+      font-size: 13px;
+    }
+    
+    body.mobile-mode footer {
+      text-align: center;
+      font-size: 10px;
+      padding: 6px 4px;
+      line-height: 1.8;
+    }
+    
+    body.mobile-mode footer span {
+      display: none;
+    }
+    
+    body.mobile-mode footer button,
+    body.mobile-mode footer select {
+      margin: 1px;
+      padding: 3px 6px;
+      font-size: 9px;
+    }
+    
+    body.mobile-mode #toast-container {
+      top: auto;
+      bottom: 80px;
+      left: 50%;
+      transform: translateX(-50%);
+      right: auto;
+      align-items: center;
+    }
+    
+    body.mobile-mode .toast {
+      padding: 16px 20px;
+      min-width: 280px;
+    }
+    
+    /* Compact mode line-height improvement */
+    .container.compact-mode #out {
+      line-height: 1.7;
+    }
+    
+    /* Dyslexic-friendly font */
+    html[data-font="dyslexic"] {
+      font-family: 'OpenDyslexic', 'Comic Sans MS', 'Arial', sans-serif;
+    }
+    
+    /* IMPROVEMENT: Collapsible Settings Menu */
+    #settings-area {
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.3s ease-out;
+      margin-top: 8px;
+      padding: 0;
+    }
+    
+    #settings-area.expanded {
+      max-height: 200px;
+      padding: 8px 0;
+    }
+    
+    #settings-toggle {
+      cursor: pointer;
+      user-select: none;
+    }
+    
+    #settings-toggle::after {
+      content: " ▼";
+      font-size: 10px;
+      margin-left: 4px;
+    }
+    
+    #settings-toggle.expanded::after {
+      content: " ▲";
+    }
+    
+    /* IMPROVEMENT: Hide D-pad when arrow keys disabled */
+    body.hide-dpad #mobile-dpad {
+      display: none !important;
+    }
+    
+    /* IMPROVEMENT: Mobile Virtual D-pad */
+    #mobile-dpad {
+      display: none;
+      position: fixed;
+      bottom: 100px;
+      right: 20px;
+      width: 140px;
+      height: 140px;
+      opacity: 0.7;
+      transition: opacity 0.3s;
+      z-index: 1000;
+    }
+    
+    #mobile-dpad:hover {
+      opacity: 1;
+    }
+    
+    .dpad-btn {
+      position: absolute;
+      width: 50px;
+      height: 50px;
+      background: var(--panel-bg);
+      border: 2px solid var(--accent);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 20px;
+      color: var(--accent);
+      user-select: none;
+    }
+    
+    .dpad-btn:active {
+      background: var(--accent);
+      color: var(--bg);
+    }
+    
+    .dpad-north { top: 0; left: 45px; }
+    .dpad-south { bottom: 0; left: 45px; }
+    .dpad-west { top: 45px; left: 0; }
+    .dpad-east { top: 45px; right: 0; }
+    
+    /* Show D-pad on touch devices in mobile mode */
+    @media (max-width: 800px) and (pointer: coarse) {
+      body.mobile-mode #mobile-dpad {
+        display: block;
+      }
+      
+      /* Hide in combat or dialogue */
+      body.mobile-mode.in-combat #mobile-dpad,
+      body.mobile-mode.in-dialogue #mobile-dpad {
+        display: none;
+      }
     }
   </style>
 
   <link rel="stylesheet" href="https://pyscript.net/releases/2024.6.1/core.css" />
   <script type="module" src="https://pyscript.net/releases/2024.6.1/core.js"></script>
+  
 </head>
 <body>
+<!-- Skip to Input Link for Accessibility -->
+<a href="#cmd" id="skip-to-input" tabindex="0" style="position:absolute;left:-9999px;z-index:999;padding:8px;background:var(--accent);color:white;text-decoration:none;border-radius:4px;">
+  Skip to input
+</a>
+<script>
+// Make skip link visible on focus
+document.getElementById('skip-to-input').addEventListener('focus', function() {
+  this.style.left = '10px';
+  this.style.top = '10px';
+});
+document.getElementById('skip-to-input').addEventListener('blur', function() {
+  this.style.left = '-9999px';
+});
+</script>
 <div class="container">
   <header>
     Whispering Wilds <span class="pill">web</span>
   </header>
   
   <main>
-    <div id="out"></div>
+    <!-- Tutorial Progress Bar -->
+    <div id="tutorial-progress" style="display:none;"></div>
+    
+    <!-- Ghost Command Suggestion -->
+    <div id="ghost-command" style="display:none;"></div>
+    
+    <!-- Micro-Goal Progress Bar -->
+    <div id="micro-goal-bar" style="display:none;"></div>
+    
+    <!-- Output with aria-live for accessibility -->
+    <div id="out" role="log" aria-live="off"></div>
+    
+    <!-- Clear Logs Link -->
+    <div style="text-align:right;padding:4px 8px;">
+      <a href="javascript:void(0)" onclick="clearOldLogs()" style="color:var(--muted);font-size:11px;text-decoration:underline;cursor:pointer;">
+        Clear older logs (keep latest 50)
+      </a>
+    </div>
+    
     <div class="row">
       <input id="cmd" placeholder="type: look, go n, forage, talk caretaker, help…" autocomplete="off" />
       <button id="send">Send</button>
+    </div>
+    
+    <!-- XP Progress Bar -->
+    <div id="xp-bar" style="display:none; margin-top:8px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+        <span id="xp-text" style="font-size:12px; color:var(--muted);">XP: 0/100</span>
+        <span id="xp-percent" style="font-size:11px; color:var(--muted);">0%</span>
+      </div>
+      <div style="background:var(--border); border-radius:6px; height:8px; overflow:hidden;">
+        <div id="xp-fill" style="background:linear-gradient(90deg, #a78bfa, #8b5cf6); width:0%; height:100%; transition:width 0.3s ease;"></div>
+      </div>
     </div>
     <div class="row">
       <button data-q="help">help</button>
@@ -316,20 +707,251 @@
         Use 'help' command to update
       </div>
     </div>
+    
+    <div class="panel" id="panel-leaderboards">
+      <div class="panel-header" onclick="togglePanel('leaderboards')">
+        <span>Leaderboards</span>
+        <span class="panel-toggle">▼</span>
+      </div>
+      <div class="panel-content" id="leaderboards-content">
+        Use 'leaderboards' command to view
+      </div>
+    </div>
+    
+    <div class="panel" id="panel-vendor">
+      <div class="panel-header" onclick="togglePanel('vendor')">
+        <span>Vendor</span>
+        <span class="panel-toggle">▼</span>
+      </div>
+      <div class="panel-content" id="vendor-content">
+        Use 'vendor' command to browse shop
+      </div>
+    </div>
   </aside>
   
   <footer>
     Runs fully in your browser via PyScript (no server needed). 
-    <span style="margin-left:12px;">Text Size:</span>
-    <button onclick="setFontSize('14px')" style="padding:4px 8px;font-size:11px;">Small</button>
-    <button onclick="setFontSize('16px')" style="padding:4px 8px;font-size:11px;">Medium</button>
-    <button onclick="setFontSize('18px')" style="padding:4px 8px;font-size:11px;">Large</button>
+    <!-- IMPROVEMENT: Settings Toggle Button -->
+    <button id="settings-toggle" onclick="toggleSettings()" style="margin-left:12px;padding:4px 8px;font-size:11px;">Settings</button>
     <button onclick="exportSave()" style="margin-left:12px;padding:4px 8px;font-size:11px;">Export Save</button>
     <button onclick="importSave()" style="padding:4px 8px;font-size:11px;">Import Save</button>
+    <button id="seed-display" onclick="copySeedLink()" style="margin-left:12px;padding:4px 8px;font-size:11px;" title="Click to copy seed link">Seed: Random</button>
+    
+    <!-- IMPROVEMENT: Collapsible Settings Area -->
+    <div id="settings-area">
+      <span style="margin-left:0px;">Text Size:</span>
+      <button onclick="setFontSize('14px')" style="padding:4px 8px;font-size:11px;">Small</button>
+      <button onclick="setFontSize('16px')" style="padding:4px 8px;font-size:11px;">Medium</button>
+      <button onclick="setFontSize('18px')" style="padding:4px 8px;font-size:11px;">Large</button>
+      <span style="margin-left:12px;">Theme:</span>
+      <select id="theme-select" onchange="setTheme(this.value)" style="padding:4px 8px;font-size:11px;background:var(--panel-bg);color:var(--fg);border:1px solid var(--border);border-radius:6px;cursor:pointer;">
+        <option value="dark">Dark Forest</option>
+        <option value="light">Light Meadow</option>
+      </select>
+      <button id="compact-mode-btn" onclick="toggleCompactMode()" style="margin-left:12px;padding:4px 8px;font-size:11px;">Compact Mode: OFF</button>
+      <br style="margin-top:4px;" />
+      <button id="mode-toggle" onclick="toggleMobileMode()" style="margin-left:0px;padding:4px 8px;font-size:11px;">Mode: Desktop</button>
+      <button id="dyslexic-toggle" onclick="toggleDyslexicFont()" style="margin-left:12px;padding:4px 8px;font-size:11px;">Dyslexic Font: OFF</button>
+      <button id="sound-toggle" onclick="toggleSound()" style="margin-left:12px;padding:4px 8px;font-size:11px;">Sound: OFF</button>
+      <button id="music-toggle" onclick="toggleMusic()" style="margin-left:12px;padding:4px 8px;font-size:11px;">Music: OFF</button>
+      <button id="hints-toggle" onclick="toggleHints()" style="margin-left:12px;padding:4px 8px;font-size:11px;">Hints: ON</button>
+      <button id="arrows-toggle" onclick="toggleArrowKeys()" style="margin-left:12px;padding:4px 8px;font-size:11px;">Arrow Keys: OFF</button>
+    </div>
   </footer>
 </div>
 
+<!-- Toast Notification Container -->
+<div id="toast-container"></div>
+
+<!-- IMPROVEMENT: Mobile Virtual D-Pad -->
+<div id="mobile-dpad">
+  <div class="dpad-btn dpad-north" onclick="mobileMove('n')">▲</div>
+  <div class="dpad-btn dpad-south" onclick="mobileMove('s')">▼</div>
+  <div class="dpad-btn dpad-west" onclick="mobileMove('w')">◄</div>
+  <div class="dpad-btn dpad-east" onclick="mobileMove('e')">►</div>
+</div>
+
 <script>
+// IMPROVEMENT: Mobile D-pad movement function
+function mobileMove(dir) {
+  const cmd = document.getElementById('cmd');
+  cmd.value = 'go ' + dir;
+  document.getElementById('send').click();
+}
+</script>
+
+<!-- Audio Elements (preloaded but not auto-playing) -->
+<audio id="audio-forest" loop preload="auto"><source src="sfx/forest.ogg" type="audio/ogg"></audio>
+<audio id="audio-sanctum" loop preload="auto"><source src="sfx/sanctum.ogg" type="audio/ogg"></audio>
+<audio id="audio-levelup" preload="auto"><source src="sfx/levelup.ogg" type="audio/ogg"></audio>
+<audio id="audio-turnin" preload="auto"><source src="sfx/turnin.ogg" type="audio/ogg"></audio>
+<audio id="audio-rare" preload="auto"><source src="sfx/rare.ogg" type="audio/ogg"></audio>
+
+<script>
+// Service Worker Registration
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js')
+    .then(reg => console.log('Service Worker registered:', reg))
+    .catch(err => console.log('Service Worker registration failed:', err));
+}
+
+// URL Seed Parsing
+window.getURLSeed = function() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('seed') || null;
+};
+
+// Update seed display button
+window.updateSeedDisplay = function(seed) {
+  const seedBtn = document.getElementById('seed-display');
+  if (seedBtn) {
+    const displaySeed = seed || 'Random';
+    seedBtn.textContent = `Seed: ${displaySeed}`;
+    window.currentGameSeed = seed;
+  }
+};
+
+// Copy current seed link to clipboard
+window.copySeedLink = function() {
+  const currentSeed = window.currentGameSeed || 'random';
+  const url = `${window.location.origin}${window.location.pathname}?seed=${currentSeed}`;
+  navigator.clipboard.writeText(url).then(() => {
+    showToast('Seed link copied to clipboard!', 'success', 2000);
+  }).catch(() => {
+    showToast('Failed to copy link', 'warning', 2000);
+  });
+};
+
+// Keyboard Shortcuts
+document.addEventListener('keydown', function(e) {
+  const cmdInput = document.getElementById('cmd');
+  const activeElement = document.activeElement;
+  
+  // Esc: Focus input
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    cmdInput.focus();
+    return;
+  }
+  
+  // Shift+? : Toggle keyboard cheatsheet
+  if (e.key === '?' && e.shiftKey) {
+    e.preventDefault();
+    toggleKeyboardCheatsheet();
+    return;
+  }
+  
+  // Tab: Cycle through quick buttons (when not in input)
+  if (e.key === 'Tab' && activeElement !== cmdInput) {
+    e.preventDefault();
+    const buttons = Array.from(document.querySelectorAll('button[data-q], button[tabindex="0"]'));
+    const currentIndex = buttons.indexOf(activeElement);
+    const nextIndex = (currentIndex + 1) % buttons.length;
+    if (buttons[nextIndex]) {
+      buttons[nextIndex].focus();
+    }
+    return;
+  }
+  
+  // Enter: Activate focused button
+  if (e.key === 'Enter' && activeElement.tagName === 'BUTTON') {
+    e.preventDefault();
+    activeElement.click();
+    return;
+  }
+});
+
+// Ensure all quick buttons are keyboard accessible
+document.querySelectorAll('button[data-q]').forEach(btn => {
+  if (!btn.hasAttribute('tabindex')) {
+    btn.setAttribute('tabindex', '0');
+  }
+});
+
+// Keyboard Cheatsheet Toggle
+function toggleKeyboardCheatsheet() {
+  let sheet = document.getElementById('keyboard-cheatsheet');
+  if (!sheet) {
+    sheet = document.createElement('div');
+    sheet.id = 'keyboard-cheatsheet';
+    sheet.style.cssText = `
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: var(--panel-bg);
+      border: 2px solid var(--accent);
+      border-radius: 12px;
+      padding: 20px;
+      z-index: 10000;
+      max-width: 400px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    `;
+    sheet.innerHTML = `
+      <div style="font-size:16px; font-weight:bold; margin-bottom:12px; color:var(--accent);">⌨️ Keyboard Shortcuts</div>
+      <div style="font-size:13px; line-height:1.8;">
+        <div><kbd>Esc</kbd> → Focus input field</div>
+        <div><kbd>Tab</kbd> → Cycle through buttons</div>
+        <div><kbd>Enter</kbd> → Activate focused button</div>
+        <div><kbd>↑↓</kbd> → Command history</div>
+        <div><kbd>Shift+?</kbd> → Toggle this help</div>
+        <div style="margin-top:12px; text-align:right;">
+          <button onclick="toggleKeyboardCheatsheet()" style="padding:6px 12px;">Close</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(sheet);
+  } else {
+    sheet.remove();
+  }
+}
+
+// Clear Logs Function
+function clearOldLogs() {
+  // This will be called from Python ui.clear_old_logs()
+  if (window.pyscript_ready) {
+    try {
+      pyscript.interpreter.globals.get('ui').clear_old_logs();
+    } catch(e) {
+      console.log('Clear logs not yet available');
+    }
+  }
+}
+
+// Toast Notification System
+let toastId = 0;
+
+function showToast(message, type = 'info', duration = 3000) {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  const id = `toast-${toastId++}`;
+  toast.id = id;
+  toast.className = `toast ${type}`;
+  
+  const icons = {
+    success: '✓',
+    info: 'ℹ',
+    warning: '⚠',
+    xp: '⭐'
+  };
+  
+  toast.innerHTML = `
+    <span class="toast-icon">${icons[type] || icons.info}</span>
+    <span class="toast-content">${message}</span>
+  `;
+  
+  container.appendChild(toast);
+  
+  setTimeout(() => {
+    toast.classList.add('fade-out');
+    setTimeout(() => {
+      if (toast.parentNode) {
+        toast.parentNode.removeChild(toast);
+      }
+    }, 300);
+  }, duration);
+}
+
 // Panel toggle functionality
 function togglePanel(id) {
   const panel = document.getElementById('panel-' + id);
@@ -339,8 +961,11 @@ function togglePanel(id) {
   
   // Save state to localStorage
   const state = {};
-  ['map', 'quests', 'inventory', 'help'].forEach(p => {
-    state[p] = !document.getElementById('panel-' + p).classList.contains('collapsed');
+  ['map', 'quests', 'inventory', 'help', 'leaderboards', 'vendor'].forEach(p => {
+    const panel = document.getElementById('panel-' + p);
+    if (panel) {
+      state[p] = !panel.classList.contains('collapsed');
+    }
   });
   localStorage.setItem('wilds_panels', JSON.stringify(state));
 }
@@ -354,18 +979,213 @@ function setFontSize(size) {
 // Dev mode toggle
 function toggleDevMode() {
   const panel = document.getElementById('dev-panel');
+  const customArea = document.getElementById('custom-buttons-area');
   const btn = document.getElementById('dev-toggle');
-  if (panel.style.display === 'none') {
+  const devModeOn = panel.style.display === 'none';
+  
+  if (devModeOn) {
     panel.style.display = 'flex';
+    customArea.style.display = 'flex';
     btn.textContent = 'Hide Dev';
   } else {
     panel.style.display = 'none';
+    customArea.style.display = 'none';
     btn.textContent = 'Dev Mode';
+  }
+  
+  localStorage.setItem('wilds_dev_mode', JSON.stringify(devModeOn));
+}
+
+// Mobile/Desktop mode toggle
+function toggleMobileMode() {
+  const body = document.body;
+  const isMobile = body.classList.toggle('mobile-mode');
+  const btn = document.getElementById('mode-toggle');
+  
+  if (btn) {
+    btn.textContent = isMobile ? 'Mode: Mobile' : 'Mode: Desktop';
+  }
+  
+  localStorage.setItem('wilds_mode', isMobile ? 'mobile' : 'desktop');
+}
+
+// Auto-detect viewport and apply mode
+function detectAndApplyMode() {
+  const savedMode = localStorage.getItem('wilds_mode');
+  const body = document.body;
+  const btn = document.getElementById('mode-toggle');
+  
+  if (savedMode === 'mobile') {
+    body.classList.add('mobile-mode');
+    if (btn) btn.textContent = 'Mode: Mobile';
+  } else if (savedMode === 'desktop') {
+    body.classList.remove('mobile-mode');
+    if (btn) btn.textContent = 'Mode: Desktop';
+  } else {
+    if (window.innerWidth < 800) {
+      body.classList.add('mobile-mode');
+      if (btn) btn.textContent = 'Mode: Mobile';
+    } else {
+      body.classList.remove('mobile-mode');
+      if (btn) btn.textContent = 'Mode: Desktop';
+    }
   }
 }
 
+// Compact mode toggle
+function toggleCompactMode() {
+  const container = document.querySelector('.container');
+  const btn = document.getElementById('compact-mode-btn');
+  const isCompact = container.classList.toggle('compact-mode');
+  
+  btn.textContent = isCompact ? 'Compact Mode: ON' : 'Compact Mode: OFF';
+  localStorage.setItem('wilds_compact_mode', JSON.stringify(isCompact));
+}
+
+// Theme switcher
+function setTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('wilds_theme', theme);
+}
+
+// Dyslexic font toggle
+function toggleDyslexicFont() {
+  const html = document.documentElement;
+  const btn = document.getElementById('dyslexic-toggle');
+  const isDyslexic = html.getAttribute('data-font') === 'dyslexic';
+  
+  if (isDyslexic) {
+    html.removeAttribute('data-font');
+    if (btn) btn.textContent = 'Dyslexic Font: OFF';
+    localStorage.setItem('wilds_dyslexic_font', 'false');
+  } else {
+    html.setAttribute('data-font', 'dyslexic');
+    if (btn) btn.textContent = 'Dyslexic Font: ON';
+    localStorage.setItem('wilds_dyslexic_font', 'true');
+  }
+}
+
+// Audio system
+let currentAmbient = null;
+let soundEnabled = false;
+let musicEnabled = false;
+
+function toggleSound() {
+  soundEnabled = !soundEnabled;
+  const btn = document.getElementById('sound-toggle');
+  if (btn) btn.textContent = soundEnabled ? 'Sound: ON' : 'Sound: OFF';
+  localStorage.setItem('wilds_sound', JSON.stringify(soundEnabled));
+}
+
+function toggleMusic() {
+  musicEnabled = !musicEnabled;
+  const btn = document.getElementById('music-toggle');
+  if (btn) btn.textContent = musicEnabled ? 'Music: ON' : 'Music: OFF';
+  localStorage.setItem('wilds_music', JSON.stringify(musicEnabled));
+  
+  if (!musicEnabled && currentAmbient) {
+    currentAmbient.pause();
+    currentAmbient = null;
+  }
+}
+
+// Hints system
+let hintsEnabled = true;
+
+function toggleHints() {
+  hintsEnabled = !hintsEnabled;
+  const btn = document.getElementById('hints-toggle');
+  if (btn) btn.textContent = hintsEnabled ? 'Hints: ON' : 'Hints: OFF';
+  localStorage.setItem('wilds_hints', JSON.stringify(hintsEnabled));
+  
+  // Hide hints immediately if disabled
+  if (!hintsEnabled) {
+    const ghostEl = document.getElementById('ghost-command');
+    if (ghostEl) ghostEl.style.display = 'none';
+  }
+}
+
+// IMPROVEMENT: Settings menu toggle
+function toggleSettings() {
+  const settingsArea = document.getElementById('settings-area');
+  const settingsBtn = document.getElementById('settings-toggle');
+  const isExpanded = settingsArea.classList.toggle('expanded');
+  
+  if (settingsBtn) {
+    settingsBtn.classList.toggle('expanded', isExpanded);
+  }
+  
+  localStorage.setItem('wilds_settings_expanded', JSON.stringify(isExpanded));
+}
+
+// IMPROVEMENT: Arrow keys (D-pad) toggle - default OFF
+let arrowKeysEnabled = false;
+
+function toggleArrowKeys() {
+  arrowKeysEnabled = !arrowKeysEnabled;
+  const btn = document.getElementById('arrows-toggle');
+  if (btn) btn.textContent = arrowKeysEnabled ? 'Arrow Keys: ON' : 'Arrow Keys: OFF';
+  
+  // Toggle D-pad visibility
+  document.body.classList.toggle('hide-dpad', !arrowKeysEnabled);
+  
+  localStorage.setItem('wilds_arrow_keys', JSON.stringify(arrowKeysEnabled));
+}
+
+function areHintsEnabled() {
+  return hintsEnabled;
+}
+
+function playAmbient(trackName) {
+  if (!musicEnabled) return;
+  
+  const audio = document.getElementById('audio-' + trackName);
+  if (!audio) return;
+  
+  if (currentAmbient && currentAmbient !== audio) {
+    currentAmbient.pause();
+    currentAmbient.currentTime = 0;
+  }
+  
+  currentAmbient = audio;
+  audio.volume = 0.3;
+  audio.play().catch(() => {});
+}
+
+function playCue(cueName) {
+  if (!soundEnabled) return;
+  
+  const audio = document.getElementById('audio-' + cueName);
+  if (!audio) return;
+  
+  audio.volume = 0.5;
+  audio.currentTime = 0;
+  audio.play().catch(() => {});
+}
+
+// Expose to Python
+window.playAmbient = playAmbient;
+window.playCue = playCue;
+
 // Restore panel states and font size
 window.addEventListener('DOMContentLoaded', () => {
+  // Restore theme
+  const savedTheme = localStorage.getItem('wilds_theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', savedTheme);
+  const themeSelect = document.getElementById('theme-select');
+  if (themeSelect) {
+    themeSelect.value = savedTheme;
+  }
+  
+  // Restore compact mode
+  const compactMode = JSON.parse(localStorage.getItem('wilds_compact_mode') || 'false');
+  const container = document.querySelector('.container');
+  const compactBtn = document.getElementById('compact-mode-btn');
+  if (compactMode) {
+    container.classList.add('compact-mode');
+    if (compactBtn) compactBtn.textContent = 'Compact Mode: ON';
+  }
+  
   // Restore panels
   const saved = localStorage.getItem('wilds_panels');
   if (saved) {
@@ -382,6 +1202,68 @@ window.addEventListener('DOMContentLoaded', () => {
   const fontSize = localStorage.getItem('wilds_fontsize');
   if (fontSize) {
     document.documentElement.style.setProperty('--font-size', fontSize);
+  }
+  
+  // Restore Dev Mode state
+  const devMode = JSON.parse(localStorage.getItem('wilds_dev_mode') || 'false');
+  const devPanel = document.getElementById('dev-panel');
+  const customArea = document.getElementById('custom-buttons-area');
+  const devBtn = document.getElementById('dev-toggle');
+  if (devMode) {
+    if (devPanel) devPanel.style.display = 'flex';
+    if (customArea) customArea.style.display = 'flex';
+    if (devBtn) devBtn.textContent = 'Hide Dev';
+  } else {
+    if (devPanel) devPanel.style.display = 'none';
+    if (customArea) customArea.style.display = 'none';
+    if (devBtn) devBtn.textContent = 'Dev Mode';
+  }
+  
+  // Apply mobile/desktop mode
+  detectAndApplyMode();
+  
+  // Listen for resize to auto-switch if user hasn't manually chosen
+  window.addEventListener('resize', () => {
+    const savedMode = localStorage.getItem('wilds_mode');
+    if (!savedMode) {
+      detectAndApplyMode();
+    }
+  });
+  
+  // Restore dyslexic font
+  const dyslexicFont = localStorage.getItem('wilds_dyslexic_font') === 'true';
+  const dyslexicBtn = document.getElementById('dyslexic-toggle');
+  if (dyslexicFont) {
+    document.documentElement.setAttribute('data-font', 'dyslexic');
+    if (dyslexicBtn) dyslexicBtn.textContent = 'Dyslexic Font: ON';
+  }
+  
+  // Restore audio settings
+  soundEnabled = JSON.parse(localStorage.getItem('wilds_sound') || 'false');
+  musicEnabled = JSON.parse(localStorage.getItem('wilds_music') || 'false');
+  const soundBtn = document.getElementById('sound-toggle');
+  const musicBtn = document.getElementById('music-toggle');
+  if (soundBtn) soundBtn.textContent = soundEnabled ? 'Sound: ON' : 'Sound: OFF';
+  if (musicBtn) musicBtn.textContent = musicEnabled ? 'Music: ON' : 'Music: OFF';
+  
+  // Restore hints setting
+  hintsEnabled = JSON.parse(localStorage.getItem('wilds_hints') || 'true');
+  const hintsBtn = document.getElementById('hints-toggle');
+  if (hintsBtn) hintsBtn.textContent = hintsEnabled ? 'Hints: ON' : 'Hints: OFF';
+  
+  // IMPROVEMENT: Restore arrow keys setting (default OFF)
+  arrowKeysEnabled = JSON.parse(localStorage.getItem('wilds_arrow_keys') || 'false');
+  const arrowsBtn = document.getElementById('arrows-toggle');
+  if (arrowsBtn) arrowsBtn.textContent = arrowKeysEnabled ? 'Arrow Keys: ON' : 'Arrow Keys: OFF';
+  document.body.classList.toggle('hide-dpad', !arrowKeysEnabled);
+  
+  // IMPROVEMENT: Restore settings area state (default collapsed)
+  const settingsExpanded = JSON.parse(localStorage.getItem('wilds_settings_expanded') || 'false');
+  const settingsArea = document.getElementById('settings-area');
+  const settingsBtn = document.getElementById('settings-toggle');
+  if (settingsExpanded) {
+    settingsArea.classList.add('expanded');
+    if (settingsBtn) settingsBtn.classList.add('expanded');
   }
   
   // Restore minimap toggle state
@@ -470,10 +1352,1038 @@ function importSave() {
 </script>
 
 <script type="py">
+# Simple Module class to simulate Python modules
+class Module:
+    pass
+
+# ========== core.py ==========
+from typing import Dict, List, Optional
+import random
+import hashlib
+from datetime import datetime, timezone
+
+# Global game reference (will be set by main)
+game = None
+
+# ---------- Data Models ----------
+
+class Item:
+    def __init__(self, id: str, name: str, desc: str, usable: bool = False, 
+                 affix: Optional[str] = None, rarity: str = "common", set_name: Optional[str] = None):
+        self.id = id
+        self.name = name
+        self.desc = desc
+        self.usable = usable
+        self.affix = affix
+        self.rarity = rarity
+        self.set_name = set_name
+    
+    def get_display_name(self):
+        """Get colored name based on rarity"""
+        rarity_colors = {
+            "common": "",
+            "uncommon": "🟢 ",
+            "rare": "🔵 ",
+            "epic": "🟣 ",
+            "legendary": "🟠 ",
+            "unique": "✨ "
+        }
+        prefix = rarity_colors.get(self.rarity, "")
+        affix_text = f"[{self.affix}] " if self.affix else ""
+        return f"{prefix}{affix_text}{self.name}"
+
+    def __repr__(self) -> str:
+        return f"Item({self.id})"
+
+
+class Room:
+    def __init__(self, id: str, name: str, desc: str):
+        self.id = id
+        self.name = name
+        self.desc = desc
+        self.items: List[Item] = []
+        self.neighbors: Dict[str, str] = {}
+        self.npcs: List[str] = []
+        self.tag: Optional[str] = None
+        self.seen = False
+        self.region_state: Dict[str, float] = {
+            "unrest": 0.0,
+            "corruption": 0.0,
+            "faith": 0.5
+        }
+        self.visit_count = 0  # Track revisits for event decks
+
+    def link(self, direction: str, other_room_id: str) -> None:
+        self.neighbors[direction] = other_room_id
+
+
+class Player:
+    def __init__(self):
+        self.inv: Dict[str, Item] = {}
+        self.hp: int = 10
+        self.max_hp: int = 10
+        self.armor: Optional[str] = None
+        self.cooldowns: Dict[str, int] = {}
+
+    def add_item(self, item: Item) -> None:
+        self.inv[item.id] = item
+
+    def remove_item(self, item_id: str) -> Optional[Item]:
+        return self.inv.pop(item_id, None)
+
+
+class World:
+    def __init__(self):
+        self.rooms: Dict[str, Room] = {}
+        self.start_room: str = ""
+
+    def add_room(self, room: Room) -> None:
+        self.rooms[room.id] = room
+
+    def get(self, room_id: str) -> Room:
+        return self.rooms[room_id]
+
+
+class SeededRNG:
+    """Seeded random number generator for daily/weekly modes"""
+    def __init__(self, seed: Optional[str] = None):
+        if seed:
+            self.seed_str = seed
+            # Use hashlib to create a numeric seed from string
+            hash_val = int(hashlib.md5(seed.encode()).hexdigest()[:8], 16)
+            self.rng = random.Random(hash_val)
+        else:
+            self.seed_str = None
+            self.rng = random.Random()
+    
+    def __getattr__(self, name):
+        """Delegate all methods to the internal RNG"""
+        return getattr(self.rng, name)
+
+
+def get_daily_seed():
+    """Generate seed from today's date"""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    return f"daily-{today}"
+
+
+def get_weekly_seed():
+    """Generate seed from current ISO week"""
+    now = datetime.now(timezone.utc)
+    year, week, _ = now.isocalendar()
+    return f"weekly-{year}-W{week:02d}"
+
+
+def roll_affix():
+    """Roll a random affix for loot"""
+    affixes = [
+        None, None, None, None,  # 40% no affix
+        "Swift", "Mighty", "Keen", "Blessed", "Ancient",
+        "Cursed", "Radiant", "Shadow", "Crystal", "Flame"
+    ]
+    return random.choice(affixes)
+
+
+def roll_rarity():
+    """Roll item rarity with weighted probabilities"""
+    roll = random.random()
+    if roll < 0.60:
+        return "common"
+    elif roll < 0.85:
+        return "uncommon"
+    elif roll < 0.95:
+        return "rare"
+    elif roll < 0.99:
+        return "epic"
+    else:
+        return "legendary"
+
+# Create core module instance
+core = Module()
+core.Item = Item
+core.Room = Room
+core.Player = Player
+core.World = World
+core.SeededRNG = SeededRNG
+core.get_daily_seed = get_daily_seed
+core.get_weekly_seed = get_weekly_seed
+core.roll_affix = roll_affix
+core.roll_rarity = roll_rarity
+
+# ========== events.py ==========
+import random
+from typing import Dict, List
+
+# Event decks by biome
+BIOME_EVENTS = {
+    "sanctum": [
+        {
+            "text": "A gentle breeze carries the scent of old incense through the atrium.\nYou hear distant whispers, like prayers from long ago.",
+            "weight": 1
+        },
+        {
+            "text": "Dust motes dance in a shaft of light.\nFor a moment, you think you see shapes moving in the shadows.",
+            "weight": 1
+        },
+        {
+            "text": "The moss on the pillars seems to glow faintly.\nThis place remembers better days.",
+            "weight": 1
+        }
+    ],
+    "forest": [
+        {
+            "text": "The trees whisper secrets to each other in a language you almost understand.\nLeaves rustle though there is no wind.",
+            "weight": 1
+        },
+        {
+            "text": "You notice strange markings on a tree trunk—claw marks, or something else?\nThe forest watches.",
+            "weight": 1
+        },
+        {
+            "text": "A deer emerges from the undergrowth, meets your eyes, then vanishes.\nYou feel you've been judged and found... acceptable.",
+            "weight": 1
+        },
+        {
+            "text": "Mushrooms grow in a perfect circle here.\nLocal tales warn against stepping inside such rings.",
+            "weight": 1
+        }
+    ],
+    "grove": [
+        {
+            "text": "Silver bark gleams in dappled light.\nThe grove feels peaceful, almost sacred.",
+            "weight": 1
+        },
+        {
+            "text": "You spot a fox watching you from behind a tree.\nIt seems curious rather than afraid.",
+            "weight": 1
+        },
+        {
+            "text": "Wildflowers bloom in unexpected colors here.\nThe air tastes sweet and strange.",
+            "weight": 1
+        }
+    ],
+    "lake": [
+        {
+            "text": "The water's surface is mirror-smooth.\nIn your reflection, you look older than you remember.",
+            "weight": 1
+        },
+        {
+            "text": "Ripples spread across the lake with no visible source.\nSomething stirs in the depths.",
+            "weight": 2
+        },
+        {
+            "text": "You hear singing carried on the wind—beautiful and melancholy.\nWhen you look around, you're alone.",
+            "weight": 1
+        },
+        {
+            "text": "The lake reflects the sky perfectly.\nFor a moment, you can't tell which way is up.",
+            "weight": 1
+        }
+    ],
+    "mine": [
+        {
+            "text": "Your footsteps echo strangely in these tunnels.\nSometimes they echo back... differently.",
+            "weight": 1
+        },
+        {
+            "text": "You spot veins of crystal in the rock, pulsing with faint light.\nThey form patterns that hurt to look at.",
+            "weight": 1
+        },
+        {
+            "text": "Water drips from the ceiling, counting seconds.\nThe rhythm is almost hypnotic.",
+            "weight": 1
+        },
+        {
+            "text": "Old mining tools lie abandoned here.\nWhoever left them did so in a hurry.",
+            "weight": 2
+        }
+    ],
+    "tower": [
+        {
+            "text": "Ancient glyphs cover the walls here.\nYou recognize some symbols from your dreams.",
+            "weight": 1
+        },
+        {
+            "text": "The tower hums with residual magic.\nYour hair stands on end.",
+            "weight": 1
+        },
+        {
+            "text": "Starlight filters through cracks in the ceiling.\nThe constellations are wrong.",
+            "weight": 1
+        }
+    ],
+    "marsh": [
+        {
+            "text": "Will-o'-wisps dance over the murky water.\nThey seem to beckon you to follow.",
+            "weight": 1
+        },
+        {
+            "text": "The marsh bubbles and gurgles.\nBest not to think about what might be decomposing below.",
+            "weight": 1
+        },
+        {
+            "text": "You hear croaking that doesn't sound quite like frogs.\nBest to keep moving.",
+            "weight": 1
+        }
+    ]
+}
+
+# Ambient memory messages (idle/revisit triggers)
+AMBIENT_MEMORIES = [
+    "You remember why you came to these wilds... or do you?",
+    "The Caretaker's words echo in your mind.",
+    "Something about this place feels familiar, like a half-remembered dream.",
+    "You pause, listening. The wilds are never truly silent.",
+    "For a moment, you glimpse movement in your peripheral vision. Nothing is there.",
+    "The wind carries a scent of smoke and old magic.",
+    "You feel the weight of ancient eyes upon you.",
+    "Time moves strangely in the wilds. How long have you been here?"
+]
+
+
+class EventDeck:
+    """Manages narrative events for biomes"""
+    
+    def __init__(self):
+        self.drawn_events: Dict[str, List[int]] = {}  # Track drawn events per room
+    
+    def draw_event(self, room_id: str, biome_type: str) -> str:
+        """Draw a weighted random event for a biome"""
+        if biome_type not in BIOME_EVENTS:
+            return ""
+        
+        events = BIOME_EVENTS[biome_type]
+        if not events:
+            return ""
+        
+        # Track drawn events to avoid immediate repeats
+        if room_id not in self.drawn_events:
+            self.drawn_events[room_id] = []
+        
+        # Weight the events
+        weights = [e["weight"] for e in events]
+        available_indices = [i for i in range(len(events)) if i not in self.drawn_events[room_id][-2:]]
+        
+        if not available_indices:
+            # All recently used, reset
+            self.drawn_events[room_id] = []
+            available_indices = list(range(len(events)))
+        
+        # Weighted selection
+        available_events = [events[i] for i in available_indices]
+        available_weights = [events[i]["weight"] for i in available_indices]
+        
+        selected_idx = random.choices(available_indices, weights=available_weights, k=1)[0]
+        self.drawn_events[room_id].append(selected_idx)
+        
+        return events[selected_idx]["text"]
+    
+    def get_ambient_memory(self) -> str:
+        """Get a random ambient memory message"""
+        return random.choice(AMBIENT_MEMORIES)
+
+
+def get_biome_type(room_id: str) -> str:
+    """Determine biome type from room ID"""
+    if "sanctum" in room_id:
+        return "sanctum"
+    elif "lake" in room_id:
+        return "lake"
+    elif "mine" in room_id:
+        return "mine"
+    elif "tower" in room_id:
+        return "tower"
+    elif "marsh" in room_id:
+        return "marsh"
+    elif "grove" in room_id:
+        return "grove"
+    elif any(x in room_id for x in ["path", "wilds", "thicket", "brook"]):
+        return "forest"
+    return "forest"  # Default
+
+# Create events module instance
+events = Module()
+events.EventDeck = EventDeck
+events.get_biome_type = get_biome_type
+
+# ========== factions.py ==========
+from typing import Dict, List, Optional
+
+class Faction:
+    """Represents a faction with reputation and shop mechanics"""
+    
+    def __init__(self, name: str, description: str):
+        self.name = name
+        self.description = description
+        self.reputation = 0  # -100 to 100
+        self.shop_inventory: List[Dict] = []
+        self.vendor_discounts: Dict[str, float] = {}  # item_id -> discount percentage
+    
+    def adjust_reputation(self, amount: int):
+        """Adjust faction reputation, clamped to -100 to 100"""
+        self.reputation = max(-100, min(100, self.reputation + amount))
+    
+    def get_reputation_tier(self) -> str:
+        """Get reputation tier name"""
+        if self.reputation >= 75:
+            return "Exalted"
+        elif self.reputation >= 50:
+            return "Revered"
+        elif self.reputation >= 25:
+            return "Honored"
+        elif self.reputation >= 0:
+            return "Friendly"
+        elif self.reputation >= -25:
+            return "Neutral"
+        elif self.reputation >= -50:
+            return "Unfriendly"
+        elif self.reputation >= -75:
+            return "Hostile"
+        else:
+            return "Hated"
+    
+    def can_access_vendor(self) -> bool:
+        """Check if reputation is high enough for vendor access"""
+        return self.reputation >= -25  # Neutral or better
+    
+    def get_discount(self, item_id: str) -> float:
+        """Get vendor discount for an item based on reputation"""
+        base_discount = 0.0
+        
+        # Reputation-based discount
+        if self.reputation >= 75:
+            base_discount = 0.25
+        elif self.reputation >= 50:
+            base_discount = 0.15
+        elif self.reputation >= 25:
+            base_discount = 0.10
+        
+        # Item-specific discount
+        item_discount = self.vendor_discounts.get(item_id, 0.0)
+        
+        return min(0.50, base_discount + item_discount)  # Cap at 50%
+
+
+class FactionManager:
+    """Manages all factions in the game"""
+    
+    def __init__(self):
+        self.factions: Dict[str, Faction] = {}
+        self._init_factions()
+    
+    def _init_factions(self):
+        """Initialize default factions"""
+        # Wilds Guardians - protectors of nature
+        guardians = Faction("Wilds Guardians", "Ancient protectors of the forest and its creatures")
+        guardians.shop_inventory = [
+            {"id": "herb", "name": "Medicinal Herb", "price": 15, "type": "material"},
+            {"id": "potion", "name": "Health Potion", "price": 30, "type": "consumable"},
+        ]
+        self.factions["guardians"] = guardians
+        
+        # Miners' Collective - industrious miners
+        collective = Faction("Miners' Collective", "Hardy workers extracting the earth's bounty")
+        collective.shop_inventory = [
+            {"id": "ore", "name": "Iron Ore", "price": 20, "type": "material"},
+            {"id": "pickaxe", "name": "Sturdy Pickaxe", "price": 50, "type": "tool"},
+        ]
+        self.factions["collective"] = collective
+        
+        # Mystic Order - magic users
+        mystics = Faction("Mystic Order", "Keepers of ancient magical knowledge")
+        mystics.shop_inventory = [
+            {"id": "scroll", "name": "Mystic Scroll", "price": 40, "type": "magic"},
+            {"id": "crystal", "name": "Power Crystal", "price": 75, "type": "material"},
+        ]
+        self.factions["mystics"] = mystics
+    
+    def get_faction(self, faction_id: str) -> Optional[Faction]:
+        """Get faction by ID"""
+        return self.factions.get(faction_id)
+    
+    def adjust_reputation(self, faction_id: str, amount: int, reason: str = ""):
+        """Adjust reputation with a faction"""
+        faction = self.get_faction(faction_id)
+        if faction:
+            old_tier = faction.get_reputation_tier()
+            faction.adjust_reputation(amount)
+            new_tier = faction.get_reputation_tier()
+            
+            # Notify if tier changed
+            if old_tier != new_tier:
+                return f"Your reputation with {faction.name} is now {new_tier}!"
+            else:
+                sign = "+" if amount >= 0 else ""
+                return f"{faction.name}: {sign}{amount} reputation"
+        return None
+    
+    def get_status_summary(self) -> str:
+        """Get summary of all faction reputations"""
+        lines = ["=== Faction Standing ==="]
+        for faction_id, faction in self.factions.items():
+            tier = faction.get_reputation_tier()
+            lines.append(f"{faction.name}: {tier} ({faction.reputation}/100)")
+        return "\n".join(lines)
+
+
+def update_region_state(room, changes: Dict[str, float]):
+    """Update region state values for a room"""
+    for key, delta in changes.items():
+        if key in room.region_state:
+            room.region_state[key] = max(0.0, min(1.0, room.region_state[key] + delta))
+
+
+def get_region_state_description(room) -> str:
+    """Get narrative description of region state"""
+    state = room.region_state
+    lines = []
+    
+    if state["corruption"] > 0.7:
+        lines.append("Dark corruption taints this place.")
+    elif state["corruption"] > 0.3:
+        lines.append("You sense an unsettling presence here.")
+    
+    if state["unrest"] > 0.7:
+        lines.append("The air crackles with tension and conflict.")
+    elif state["unrest"] > 0.3:
+        lines.append("An uneasy atmosphere pervades the area.")
+    
+    if state["faith"] > 0.7:
+        lines.append("Divine grace seems to watch over this place.")
+    elif state["faith"] < 0.3:
+        lines.append("Faith has abandoned these lands.")
+    
+    return " ".join(lines) if lines else ""
+
+# Create factions module instance
+factions = Module()
+factions.Faction = Faction
+factions.FactionManager = FactionManager
+factions.update_region_state = update_region_state
+factions.get_region_state_description = get_region_state_description
+
+# ========== daily_spark.py ==========
+from js import localStorage, JSON
+from datetime import datetime, timezone
+import random
+
+def get_daily_objective():
+    """Get or create today's daily objective"""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    
+    try:
+        spark_json = localStorage.getItem("wilds_daily_spark") or "{}"
+        # Convert JavaScript object to Python dict
+        spark_data = JSON.parse(spark_json).to_py() if spark_json != "{}" else {}
+    except:
+        spark_data = {}
+    
+    # Check if we have today's objective
+    if spark_data.get("date") == today:
+        return spark_data.get("objective"), spark_data.get("progress", 0)
+    
+    # Generate new daily objective
+    objectives = [
+        {"type": "gather", "item": "herb", "count": 3, "desc": "gather 3 herbs"},
+        {"type": "gather", "item": "ore", "count": 2, "desc": "gather 2 ore"},
+        {"type": "defeat", "enemy": "wolf", "count": 2, "desc": "defeat 2 wolves"},
+        {"type": "explore", "count": 5, "desc": "explore 5 new rooms"},
+        {"type": "craft", "item": "potion", "count": 1, "desc": "craft a potion"},
+        {"type": "talk", "npc": "any", "count": 3, "desc": "talk to 3 NPCs"},
+        {"type": "boss", "desc": "defeat a mini-boss"},
+    ]
+    
+    objective = random.choice(objectives)
+    
+    # Store new objective
+    spark_data = {
+        "date": today,
+        "objective": objective,
+        "progress": 0
+    }
+    
+    try:
+        localStorage.setItem("wilds_daily_spark", JSON.stringify(spark_data))
+    except:
+        pass
+    
+    return objective, 0
+
+
+def update_daily_progress(increment=1):
+    """Update progress on today's daily objective"""
+    try:
+        spark_json = localStorage.getItem("wilds_daily_spark") or "{}"
+        spark_data = JSON.parse(spark_json).to_py() if spark_json != "{}" else {}
+        spark_data["progress"] = spark_data.get("progress", 0) + increment
+        localStorage.setItem("wilds_daily_spark", JSON.stringify(spark_data))
+        
+        objective = spark_data.get("objective", {})
+        progress = spark_data["progress"]
+        goal = objective.get("count", 1)
+        
+        if progress >= goal:
+            return True, progress, goal  # Completed
+        return False, progress, goal  # In progress
+    except:
+        return False, 0, 1
+
+
+def check_daily_completion():
+    """Check if today's daily objective is complete"""
+    try:
+        spark_json = localStorage.getItem("wilds_daily_spark") or "{}"
+        spark_data = JSON.parse(spark_json).to_py() if spark_json != "{}" else {}
+        objective = spark_data.get("objective", {})
+        progress = spark_data.get("progress", 0)
+        goal = objective.get("count", 1)
+        return progress >= goal
+    except:
+        return False
+
+
+def get_session_resume_hint(game):
+    """Analyze save data to suggest what player was doing"""
+    try:
+        # Check active quests
+        if hasattr(game, "_p6") and game._p6.get("quests"):
+            for quest_id, quest in game._p6["quests"].items():
+                if quest.get("state") == "active":
+                    # Found an active quest
+                    if "craft" in quest.get("goal", "").lower():
+                        return "You were about to craft something—type 'recipes' to continue."
+                    elif "find" in quest.get("goal", "").lower():
+                        return "You were searching for something—check your quest log with 'quests'."
+                    elif "talk" in quest.get("goal", "").lower():
+                        return "You were going to speak with someone—type 'quests' for details."
+                    else:
+                        return f"You have an active quest: {quest.get('name', 'Unknown')}. Type 'quests' for details."
+        
+        # Check materials - suggest crafting
+        if hasattr(game, "_p3") and game._p3.get("mats"):
+            mats = game._p3["mats"]
+            if mats.get("herb", 0) >= 2:
+                return "You have herbs—type 'recipes' to see what you can craft."
+            if mats.get("ore", 0) >= 1:
+                return "You have ore—consider crafting or exploring the mine further."
+        
+        # Check inventory for unused consumables
+        if game.player.inv:
+            for item_id, item in game.player.inv.items():
+                if hasattr(item, 'usable') and item.usable:
+                    return f"You have {item.name} in your inventory—type 'use {item_id}' when needed."
+        
+        # Default suggestion
+        return "Type 'look' to survey your surroundings, or 'help' for commands."
+    
+    except Exception as e:
+        return "Welcome back! Type 'help' to see available commands."
+
+# Create daily_spark module instance
+daily_spark = Module()
+daily_spark.get_daily_objective = get_daily_objective
+daily_spark.update_daily_progress = update_daily_progress
+daily_spark.check_daily_completion = check_daily_completion
+daily_spark.get_session_resume_hint = get_session_resume_hint
+
+# ========== tutorial.py ==========
+from js import document, localStorage, window
+from pyodide.ffi import create_proxy
+
+tutorial_state = {
+    "active": False,
+    "step": 0,
+    "start_time": 0
+}
+
+TUTORIAL_STEPS = [
+    {
+        "instruction": "Welcome to Whispering Wilds! Let's learn the basics.\n\nFirst, look around. Click the 'look' button below or type 'look'.",
+        "command": "look",
+        "ghost": "look"
+    },
+    {
+        "instruction": "Great! You see a Rusty Key here. Let's pick it up.\n\nType 'take key' or click the suggestion below.",
+        "command": "take",
+        "ghost": "take key"
+    },
+    {
+        "instruction": "Perfect! Now you have the key. Let's use it to unlock the east gate.\n\nType 'go e' to move east, or use the suggestion.",
+        "command": "go",
+        "ghost": "go e"
+    },
+    {
+        "instruction": "You've reached the gate! Now use the key to unlock it.\n\nType 'use key' or click below.",
+        "command": "use",
+        "ghost": "use key"
+    },
+    {
+        "instruction": "Excellent! The gate is open. Move east again to enter the wilds.",
+        "command": "go",
+        "ghost": "go e"
+    },
+    {
+        "instruction": "Tutorial complete! You've learned movement, taking items, and using them.\n\nType 'help' anytime to see all commands. Good luck in the Whispering Wilds!",
+        "command": None,
+        "ghost": None
+    }
+]
+
+
+def start_tutorial(game):
+    """Start the golden-path tutorial"""
+    global tutorial_state
+    import time
+    
+    tutorial_state = {
+        "active": True,
+        "step": 0,
+        "start_time": time.time()
+    }
+    
+    show_tutorial_step(game)
+
+
+def show_tutorial_step(game):
+    """Display current tutorial step with ghost command"""
+    global tutorial_state
+    
+    if tutorial_state["step"] >= len(TUTORIAL_STEPS):
+        complete_tutorial(game)
+        return
+    
+    step = TUTORIAL_STEPS[tutorial_state["step"]]
+    
+    # Show instruction using game's say method
+    game.say("\n" + "="*50)
+    game.say(f"📚 Tutorial Step {tutorial_state['step'] + 1}/{len(TUTORIAL_STEPS)}")
+    game.say("="*50)
+    game.say(step["instruction"])
+    
+    # Show progress bar
+    progress = int((tutorial_state["step"] / len(TUTORIAL_STEPS)) * 100)
+    show_tutorial_progress(progress)
+    
+    # Show ghost command
+    if step["ghost"]:
+        show_ghost_command(step["ghost"])
+
+
+def show_ghost_command(command):
+    """Display a clickable ghost command suggestion"""
+    # Check if hints are enabled
+    if not window.areHintsEnabled():
+        return
+    
+    ghost_el = document.getElementById("ghost-command")
+    if ghost_el:
+        ghost_el.innerHTML = f'''
+            <div style="background:var(--tip-bg);border:1px solid var(--tip-border);border-radius:8px;padding:12px;margin:8px 0;display:flex;align-items:center;gap:10px;">
+                <span style="font-size:20px;">💡</span>
+                <span>Try this: </span>
+                <button onclick="document.getElementById('cmd').value='{command}';document.getElementById('cmd').focus();" 
+                        style="background:var(--accent);color:white;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;">
+                    {command}
+                </button>
+            </div>
+        '''
+        ghost_el.style.display = "block"
+
+
+def show_tutorial_progress(percent):
+    """Show tutorial progress bar"""
+    progress_el = document.getElementById("tutorial-progress")
+    if progress_el:
+        progress_el.innerHTML = f'''
+            <div style="background:var(--border);border-radius:4px;overflow:hidden;height:8px;margin:8px 0;">
+                <div style="background:var(--accent);width:{percent}%;height:100%;transition:width 0.3s;"></div>
+            </div>
+        '''
+        progress_el.style.display = "block"
+
+
+def check_tutorial_command(game, command):
+    """Check if command advances tutorial"""
+    global tutorial_state
+    
+    if not tutorial_state.get("active"):
+        return False
+    
+    step = TUTORIAL_STEPS[tutorial_state["step"]]
+    expected_cmd = step["command"]
+    
+    if expected_cmd and command.lower().startswith(expected_cmd):
+        tutorial_state["step"] += 1
+        
+        # Show next step after brief delay
+        def next_step():
+            show_tutorial_step(game)
+        
+        window.setTimeout(create_proxy(next_step), 500)
+        return True
+    
+    return False
+
+
+def complete_tutorial(game):
+    """Complete tutorial and save completion"""
+    global tutorial_state
+    import time
+    
+    duration = int(time.time() - tutorial_state["start_time"])
+    tutorial_state["active"] = False
+    
+    game.say("\n" + "="*50)
+    game.say("🎉 Tutorial Complete!")
+    game.say("="*50)
+    game.say(f"Time taken: {duration} seconds")
+    game.say("\nYou're ready to explore the Whispering Wilds!")
+    game.say("Type 'help' anytime to see all available commands.")
+    
+    # Hide tutorial UI elements
+    ghost_el = document.getElementById("ghost-command")
+    if ghost_el:
+        ghost_el.style.display = "none"
+    
+    progress_el = document.getElementById("tutorial-progress")
+    if progress_el:
+        progress_el.style.display = "none"
+    
+    # Save completion
+    try:
+        localStorage.setItem("wilds_tutorial_done", "true")
+    except:
+        pass
+    
+    # Note: notify is called from the main game context, not here
+
+
+def skip_tutorial():
+    """Skip tutorial"""
+    global tutorial_state
+    tutorial_state["active"] = False
+    
+    try:
+        localStorage.setItem("wilds_tutorial_done", "true")
+    except:
+        pass
+    
+    # Hide UI elements
+    ghost_el = document.getElementById("ghost-command")
+    if ghost_el:
+        ghost_el.style.display = "none"
+    
+    progress_el = document.getElementById("tutorial-progress")
+    if progress_el:
+        progress_el.style.display = "none"
+
+# Create tutorial module instance
+tutorial = Module()
+tutorial.start_tutorial = start_tutorial
+tutorial.show_tutorial_step = show_tutorial_step
+tutorial.show_ghost_command = show_ghost_command
+tutorial.show_tutorial_progress = show_tutorial_progress
+tutorial.check_tutorial_command = check_tutorial_command
+tutorial.complete_tutorial = complete_tutorial
+tutorial.skip_tutorial = skip_tutorial
+
+# ========== ui.py ==========
+from js import document, localStorage, JSON, window, console
+from pyodide.ffi import create_proxy
+import time
+
+# Log message tracking for virtualization
+log_messages = []
+MAX_LOG_MESSAGES = 150
+
+# Duplicate message tracking
+message_history = {}
+
+# Accessibility: latest message element for aria-live
+latest_message_el = None
+
+
+def println(text: str = "", clickable_items=None):
+    """Print to console with log virtualization and optional clickable elements"""
+    global log_messages, latest_message_el
+    
+    node = document.createElement("div")
+    
+    if clickable_items and isinstance(clickable_items, list):
+        # Make certain words clickable
+        text_str = str(text)
+        for item in clickable_items:
+            text_str = text_str.replace(item, f'<CLICK>{item}</CLICK>')
+        
+        # Convert to HTML spans
+        parts = text_str.split('<CLICK>')
+        for i, part in enumerate(parts):
+            if '</CLICK>' in part:
+                item, rest = part.split('</CLICK>', 1)
+                span = document.createElement("span")
+                span.textContent = item
+                span.className = "clickable"
+                span.setAttribute("data-cmd", item)
+                node.appendChild(span)
+                if rest:
+                    text_node = document.createTextNode(rest)
+                    node.appendChild(text_node)
+            else:
+                if part:
+                    text_node = document.createTextNode(part)
+                    node.appendChild(text_node)
+    else:
+        node.textContent = str(text)
+    
+    out = document.getElementById("out")
+    out.appendChild(node)
+    log_messages.append(node)
+    
+    # Log virtualization: remove oldest messages if over limit
+    if len(log_messages) > MAX_LOG_MESSAGES:
+        oldest = log_messages.pop(0)
+        if oldest.parentNode:
+            oldest.parentNode.removeChild(oldest)
+    
+    # Accessibility: Mark as latest for aria-live
+    if latest_message_el:
+        latest_message_el.removeAttribute("aria-live")
+    latest_message_el = node
+    node.setAttribute("aria-live", "polite")
+    
+    # Auto-scroll logic
+    try:
+        user_scrolled = window.user_scrolled if hasattr(window, 'user_scrolled') else False
+        if not user_scrolled or (out.scrollHeight - out.scrollTop - out.clientHeight) < 50:
+            out.scrollTop = out.scrollHeight
+            window.user_scrolled = False
+    except:
+        pass
+
+
+def clear_old_logs():
+    """Clear all but the latest 50 messages"""
+    global log_messages
+    while len(log_messages) > 50:
+        oldest = log_messages.pop(0)
+        if oldest.parentNode:
+            oldest.parentNode.removeChild(oldest)
+    show_toast("Cleared older logs", "success", 2000)
+
+
+def show_toast(message: str, toast_type: str = "info", duration: int = 3000):
+    """Show a toast notification without cluttering the main console"""
+    try:
+        window.showToast(message, toast_type, duration)
+    except Exception as e:
+        console.log(f"Toast error: {e}")
+
+
+def notify(kind: str, msg: str, duration: int = 3000):
+    """
+    Centralized toast notification routing system.
+    
+    Args:
+        kind: Type of notification - 'xp', 'success', 'info', 'warning'
+        msg: Message to display
+        duration: How long to show the toast in milliseconds
+    """
+    valid_kinds = {'xp', 'success', 'info', 'warning'}
+    toast_type = kind if kind in valid_kinds else 'info'
+    show_toast(msg, toast_type, duration)
+
+
+def should_show_message(msg: str, msg_type: str = "generic", time_window: int = 10) -> tuple:
+    """
+    Check if message should be shown or is a duplicate.
+    Returns: (should_show: bool, count: int)
+    """
+    global message_history
+    current_time = time.time()
+    
+    key = f"{msg_type}:{msg}"
+    
+    if key in message_history:
+        last_time, count = message_history[key]
+        if current_time - last_time <= time_window:
+            message_history[key] = (current_time, count + 1)
+            return (False, count + 1)
+        else:
+            message_history[key] = (current_time, 1)
+            return (True, 1)
+    else:
+        message_history[key] = (current_time, 1)
+        return (True, 1)
+
+
+def update_panel(panel_id, content):
+    """Update panel contents"""
+    panel = document.getElementById(f"{panel_id}-content")
+    if panel:
+        panel.innerHTML = content.replace('\n', '<br>')
+
+
+def show_micro_goal(current: int, total: int, description: str):
+    """Display micro-goal progress bar"""
+    progress_el = document.getElementById("micro-goal-bar")
+    if progress_el:
+        percent = int((current / total) * 100) if total > 0 else 0
+        progress_el.innerHTML = f"""
+            <div style="background:var(--border);border-radius:4px;overflow:hidden;height:20px;margin:4px 0;">
+                <div style="background:var(--accent);width:{percent}%;height:100%;transition:width 0.3s;"></div>
+            </div>
+            <div style="font-size:11px;color:var(--muted);">{description} ({current}/{total})</div>
+        """
+        progress_el.style.display = "block"
+        
+        # Auto-hide when complete
+        if current >= total:
+            def hide_bar():
+                progress_el.style.display = "none"
+            window.setTimeout(create_proxy(hide_bar), 3000)
+
+# XP Bar update function
+def update_xp_bar(current_xp: int, next_threshold: int):
+    """Update the XP progress bar"""
+    try:
+        xp_bar = document.getElementById("xp-bar")
+        xp_text = document.getElementById("xp-text")
+        xp_percent_el = document.getElementById("xp-percent")
+        xp_fill = document.getElementById("xp-fill")
+        
+        if xp_bar:
+            xp_bar.style.display = "block"
+            
+            # Calculate progress
+            percent = min(100, int((current_xp / next_threshold) * 100)) if next_threshold > 0 else 0
+            
+            # Update elements
+            xp_text.textContent = f"XP: {current_xp}/{next_threshold}"
+            xp_percent_el.textContent = f"{percent}%"
+            xp_fill.style.width = f"{percent}%"
+    except Exception as e:
+        console.log(f"XP bar update error: {e}")
+
+# Create ui module instance
+ui = Module()
+ui.println = println
+ui.clear_old_logs = clear_old_logs
+ui.show_toast = show_toast
+ui.notify = notify
+ui.should_show_message = should_show_message
+ui.update_panel = update_panel
+ui.show_micro_goal = show_micro_goal
+ui.update_xp_bar = update_xp_bar
+
+# ========== Main Game Code ==========
+
 # ---------- UI plumbing ----------
 from js import document, window, localStorage, JSON, prompt
 from pyodide.ffi import create_proxy
 import json as pyjson
+import random
+from datetime import datetime, timezone
+from urllib.parse import parse_qs
 
 out = document.getElementById("out")
 cmd_input = document.getElementById("cmd")
@@ -482,6 +2392,22 @@ send_btn = document.getElementById("send")
 # CHANGE: debug + UI flags
 DEBUG_COMBAT = False
 VERBOSE_UI = False
+
+# Mark PyScript as ready
+window.pyscript_ready = True
+
+# Initialize global systems
+event_deck = events.EventDeck()
+faction_manager = factions.FactionManager()
+
+# Check for seed parameter in URL
+url_params = parse_qs(window.location.search.lstrip('?'))
+seed_param = url_params.get('seed', [None])[0]
+
+# Use println from ui module
+println = ui.println
+show_toast = ui.show_toast
+notify = ui.notify
 
 # CHANGE: bounded repeat helper (cap=10, partials) with batch summarization
 def _run_repeated(game, n, fn, cmd_name="action"):
@@ -629,6 +2555,54 @@ for el in document.querySelectorAll('.panel-content').to_py():
 # Hook Python print() to our console
 import builtins
 builtins.print = println
+
+# Toast notification system
+def show_toast(message: str, toast_type: str = "info", duration: int = 3000):
+    """Show a toast notification without cluttering the main console"""
+    try:
+        window.showToast(message, toast_type, duration)
+    except Exception as e:
+        pass
+
+# Toast routing system with predefined types
+def notify(kind: str, msg: str, duration: int = 3000):
+    """
+    Centralized toast notification routing system.
+    
+    Args:
+        kind: Type of notification - 'xp', 'success', 'info', 'warning'
+        msg: Message to display
+        duration: How long to show the toast in milliseconds (default 3000)
+    """
+    valid_kinds = {'xp', 'success', 'info', 'warning'}
+    toast_type = kind if kind in valid_kinds else 'info'
+    show_toast(msg, toast_type, duration)
+
+# Duplicate message detection system
+message_history = {}
+import time
+
+def should_show_message(msg: str, msg_type: str = "generic", time_window: int = 10) -> tuple:
+    """
+    Check if message should be shown or is a duplicate.
+    Returns: (should_show: bool, count: int)
+    """
+    global message_history
+    current_time = time.time()
+    
+    key = f"{msg_type}:{msg}"
+    
+    if key in message_history:
+        last_time, count = message_history[key]
+        if current_time - last_time <= time_window:
+            message_history[key] = (current_time, count + 1)
+            return (False, count + 1)
+        else:
+            message_history[key] = (current_time, 1)
+            return (True, 1)
+    else:
+        message_history[key] = (current_time, 1)
+        return (True, 1)
 
 # Command history
 command_history = []
@@ -845,12 +2819,22 @@ class Game:
             self.say("The gate is locked. A keyhole awaits a fitting key.")
             return
 
+        # IMPROVEMENT: Track previous room for flee command
+        self.prev_room = self.cur_room
         self.cur_room = r.neighbors[d]
 
         # Track if this is a new room
         was_new_room = not self.room().seen
 
         self.look()
+
+        # IMPROVEMENT: Award XP for discovering new rooms
+        if was_new_room and hasattr(self, "_p2"):
+            self._p2["xp"] = self._p2.get("xp", 0) + 1
+            show_toast("+1 XP (Room Discovery)", "xp", 2000)
+            # Check for level up
+            if hasattr(self, "_p11"):
+                _p11_check_level_up(self)
 
         # Track achievements
         if hasattr(self, "_p8"):
@@ -870,6 +2854,16 @@ class Game:
             _p6_update_quest_panel(self)
         except Exception:
             pass
+        
+        # Trigger Echoes at Lake quest when first visiting
+        if hasattr(self, "_p17") and self.cur_room == "wilds_lake":
+            if not self._p17.get("story_flags", {}).get("lake_visited"):
+                self._p17["story_flags"]["lake_visited"] = True
+                echoes_quest = self._p6["quests"].get("echoes_lake", {})
+                if echoes_quest.get("state") == "new":
+                    self.say("\nAs you approach the water, a chill runs down your spine...")
+                    self.say("Type: explore lake  (to investigate the echoes)")
+                    echoes_quest["state"] = "offered"
 
     def _show_mini_map(self):
         """Show compact map after movement"""
@@ -925,6 +2919,16 @@ class Game:
         r.seen = True
         items = [i.name for i in r.items]
         self.say(f"{r.name}\n{r.desc}")
+        
+        # IMPROVEMENT: Add navigation hints for special rooms (only if hints enabled)
+        if window.areHintsEnabled():
+            if "wilds_mine" in r.id and r.id != "deep_mine":
+                self.say("Dark passages descend deeper below. (Type: descend)")
+            elif "wilds_lake" in r.id and r.id != "lake_depths":
+                self.say("The water looks deep enough to dive into. (Type: dive)")
+            elif "wilds_tower" in r.id and r.id != "tower_top":
+                self.say("Stairs spiral upward to the summit. (Type: climb)")
+        
         if r.items:
             self.say("Items here: " + ", ".join(i.name for i in r.items), clickable=items)
         if r.npcs:
@@ -1428,34 +3432,47 @@ descend - Descend into deep mine
 dive - Dive underwater at lake
 go/move [direction] - Move in a direction
 look - Examine your surroundings
-map - Show the world map
+map - Show the world map (alias: m)
+talk [npc] - Talk to NPC (auto if only one in room) (alias: t)
 
 === COMBAT ===
-attack - Attack an enemy in combat
-power/strike - Use Power Strike skill (Level 3+, 2x damage)
+attack - Attack an enemy in combat (alias: a)
+flee - Escape from combat (60% success, 85% in Pacifist mode)
+power/strike - Use Power Strike skill (Level 3+, 2x damage, 10% stun)
 heal - Use Heal skill (Level 5+, restore 5 HP)
 defend - Use Defend skill (Level 7+, 50% damage reduction)
 hunt - Search for creatures (in wilds)
-rest - Recover HP (2 HP, not during combat)
+rest - Recover HP (2 HP, not during combat) (alias: r)
 skills - Show your unlocked skills
+bestiary [creature] - View detailed bestiary entry
 
-=== ITEMS ===
+Note: Power Strike has a 10% chance to STUN (enemy skips next turn).
+Status effects shown in brackets after enemy HP: [BLEEDING], [STUNNED]
+
+=== ITEMS & INVENTORY ===
 drop [item] - Drop an item
-inv - Show inventory
+inv - Show categorized inventory
+sort [mode] - Change inventory sort (alpha/type/newest)
 take [item] - Pick up an item
 unlock - Unlock gates (auto-uses key)
 use [item] - Use an item (key, apple, bandage, potion)
 
-=== CRAFTING ===
-craft [item] - Craft an item (e.g., lesser potion, armor)
-forage [n] - Gather herbs/fiber (optional: repeat n times)
+=== CRAFTING & GATHERING ===
+craft [item] - Craft an item (lesser potion, armor)
+forage [n] - Gather herbs/fiber (optional: repeat n times) (alias: f)
 recipes - Show all craftable items and requirements
+sense - Get biome-specific gathering hints (cooldown)
 xp/exp - Show current XP and progress to next level
-Note: Repeatable commands support a count (e.g., "forage 5", "attack 3"). Counts are capped at 10. // CHANGE: Help includes batching examples
 
-=== QUESTS ===
+Note: Gathering cooldowns reset when you do other actions (move, talk, craft).
+
+=== QUESTS & STORY ===
 accept [quest] - Accept a quest (auto if only one available)
-quests - List active quests and progress
+answer [answer] - Answer a riddle
+choose [number] - Make a story choice
+explore [location] - Investigate special locations
+lore flag - View discovered story flags
+quests [filter] - List quests (active/completed/all) (alias: q)
 turnin [quest] - Turn in a completed quest
 
 === ACTIVITIES ===
@@ -1463,25 +3480,46 @@ fish - Fish at the lake
 harvest - Gather glowcaps in damp places
 mine - Mine ore at the mine
 search - Search for hidden treasures
-Note: Repeated harvesting may trigger small encounters after multiple uses.
 
-=== ECONOMY ===
-buy [item] - Purchase item from shop
-sell [item] - Sell item for gold (at Trading Post)
+=== ECONOMY & VENDOR ===
+buy [item] - Purchase item from faction vendor
+sell [item] - Sell item for gold
 shop/trade - Browse shop inventory
 travel [location] - Fast travel (10 gold)
 upgrade [skill] - Upgrade skills with gold
+vendor - Open faction vendor shop (reputation-gated)
 
 === SOCIAL / DIALOGUE ===
 give [item] [npc] - Give item to NPC
 say [number] or just [number] - Choose dialogue option
-talk [npc] - Talk to NPC (auto if only one in room)
+
+=== MOBILE CONTROLS ===
+On mobile: Use the on-screen D-pad for directional movement
+
+=== PLAYSTYLE & SETTINGS ===
+mode [preset] - Change playstyle (explorer/hunter/cozy/hardcore)
+mode daily - Switch to Daily Challenge seed
+mode weekly - Switch to Weekly Challenge seed
+settings - View current settings and preset
+ui [1-5] - Set UI verbosity (1=minimal, 5=maximum)
+verbosity [level] - Set output level (quiet/normal/verbose)
+
+=== SEEDS & LEADERBOARDS ===
+copyseed - Copy current seed URL to clipboard
+leaderboards - View top runs for current seed
+
+=== KEYBOARD SHORTCUTS ===
+Esc - Focus input field
+Tab - Cycle through buttons
+Enter - Activate focused button
+↑↓ - Browse command history
+Shift+? - Toggle keyboard shortcuts help
 
 === SYSTEM ===
 achievements - View achievement progress
 bestiary - List discovered creatures
 help - Show this help
-history - Show action history for current room (success/failed/untried)
+history - Show action history for current room
 load - Load saved game
 lore [name] - View info about room/items/NPCs/creatures
 quit - Exit game
@@ -1497,6 +3535,98 @@ test - Run automated tests
         # Update help panel
         update_panel("help", help_text.replace('\n', '<br>'))
 
+    # Fuzzy command matching with Damerau-Levenshtein distance
+    @staticmethod
+    def _damerau_levenshtein(s1: str, s2: str) -> int:
+        """Calculate Damerau-Levenshtein distance between two strings"""
+        len1, len2 = len(s1), len(s2)
+        if len1 > len2:
+            s1, s2 = s2, s1
+            len1, len2 = len2, len1
+        
+        if len1 == 0:
+            return len2
+        
+        prev_row = list(range(len2 + 1))
+        for i in range(len1):
+            curr_row = [i + 1]
+            for j in range(len2):
+                cost = 0 if s1[i] == s2[j] else 1
+                curr_row.append(min(
+                    prev_row[j + 1] + 1,     # deletion
+                    curr_row[j] + 1,         # insertion
+                    prev_row[j] + cost       # substitution
+                ))
+                # Transposition
+                if i > 0 and j > 0 and s1[i] == s2[j-1] and s1[i-1] == s2[j]:
+                    curr_row[j+1] = min(curr_row[j+1], prev_row[j-1] + cost)
+            prev_row = curr_row
+        return prev_row[-1]
+    
+    def _get_synonyms(self) -> dict:
+        """Return command synonym mappings"""
+        return {
+            'walk': 'go', 'move': 'go', 'run': 'go', 'head': 'go',
+            'grab': 'take', 'pick': 'take', 'get': 'take',
+            'examine': 'look', 'inspect': 'look', 'l': 'look',
+            'atk': 'attack', 'attk': 'attack', 'attak': 'attack', 'fight': 'attack', 'engage': 'attack',
+            'bag': 'inv', 'backpack': 'inv', 'i': 'inv', 'inventory': 'inv',
+            'make': 'craft', 'brew': 'craft', 'forge': 'craft', 'create': 'craft',
+            'no': 'n', 'ea': 'e', 'so': 's', 'we': 'w',
+            'lokk': 'look', 'tak': 'take', 'drp': 'drop', 'frge': 'forage',
+            'ste': 'stats', 'stas': 'stats', 'stat': 'stats'
+        }
+    
+    def _get_valid_commands(self) -> set:
+        """Return set of valid command names"""
+        return {
+            'look', 'go', 'move', 'n', 's', 'e', 'w', 'u', 'd',
+            'north', 'south', 'east', 'west', 'up', 'down',
+            'take', 'drop', 'use', 'inv', 'unlock',
+            'talk', 'say', 'give',
+            'attack', 'power', 'heal', 'defend', 'flee',
+            'forage', 'mine', 'fish', 'harvest', 'search',
+            'craft', 'recipes',
+            'map', 'stats', 'quests', 'accept', 'turnin',
+            'shop', 'buy', 'sell', 'trade', 'travel', 'upgrade',
+            'save', 'load', 'help', 'quit', 'exit', 'q',
+            'xp', 'exp', 'bestiary', 'lore', 'history', 'achievements',
+            'sound', 'test', 'skills'
+        }
+    
+    def fuzzy_match_command(self, cmd: str) -> str:
+        """
+        Try to match a command using synonyms and fuzzy matching.
+        Returns the matched command or the original if no match found.
+        """
+        # First try synonyms
+        synonyms = self._get_synonyms()
+        if cmd in synonyms:
+            return synonyms[cmd]
+        
+        # Then try fuzzy matching
+        valid_cmds = self._get_valid_commands()
+        best_match = None
+        best_distance = float('inf')
+        
+        for valid_cmd in valid_cmds:
+            distance = self._damerau_levenshtein(cmd, valid_cmd)
+            if distance < best_distance:
+                best_distance = distance
+                best_match = valid_cmd
+        
+        # Only suggest if distance is 1 or 2 (close typo)
+        if best_distance <= 2 and best_match:
+            if best_distance == 1:
+                # Auto-correct silently for very close matches
+                return best_match
+            elif best_distance == 2:
+                # Suggest for slightly further matches
+                notify('info', f"Did you mean '{best_match}'? Using that instead.", 2000)
+                return best_match
+        
+        return cmd
+
     def dispatch(self, line: str) -> bool:
         parts = line.strip().split()
         if not parts:
@@ -1507,6 +3637,17 @@ test - Run automated tests
         if cmd.isdigit():
             cmd = "say"
             args = [parts[0]]  # Use original number as arg
+        else:
+            # Apply fuzzy matching and synonyms
+            cmd = self.fuzzy_match_command(cmd)
+        
+        # Check tutorial progress (if active)
+        try:
+            if tutorial.check_tutorial_command(self, cmd):
+                # Tutorial handled the command, but still execute it normally
+                pass
+        except:
+            pass
 
         # Check for numeric repetition (e.g., "forage 5")
         repeat_count = 1
@@ -1812,13 +3953,14 @@ ext_handle_command = p2_ext_handle_command
 
 P3_PREV_EXT = globals().get("ext_handle_command", None)
 
+# IMPROVEMENT: Boosted starting economy for better early game experience
 def part3_post_init(game):
     if not game or getattr(game, "_p3", None) is not None:
         return
     game._p3 = {
         "rng": random.Random(9001),
         "mats": {"fiber": 0, "herb": 0},
-        "gold": 5,
+        "gold": 20,  # IMPROVEMENT: Increased from 5 to 20
         "flags": {},
         "prices": {"bandage": 3, "apple": 1},
         "gather_cooldown": 0,
@@ -1830,9 +3972,20 @@ def _p3_forage(game):
         print("You poke around but find nothing.")
         return False
     
-    # Check cooldown (requires 2 non-gathering actions between forages)
+    # IMPROVEMENT: Check cooldown with clearer messaging
     if game._p3.get("gather_cooldown", 0) > 0:
-        game.say(f"You need to rest before foraging again. (Wait {game._p3['gather_cooldown']} more actions)")
+        game.say(f"Wait {game._p3['gather_cooldown']} more actions (any command except gather/fish/mine/harvest).")
+        # IMPROVEMENT: Show one-time cooldown tip using localStorage
+        try:
+            from js import localStorage, window
+            if not localStorage.getItem("wilds_cooldown_tip_shown"):
+                # Check hints toggle
+                hints_on = localStorage.getItem("wilds_hints")
+                if hints_on is None or hints_on == "true":
+                    show_toast("💡 Tip: Cooldowns reset when you do other actions like move, talk, or craft.", "info", 5000)
+                localStorage.setItem("wilds_cooldown_tip_shown", "true")
+        except:
+            pass
         return True
     
     rng = game._p3["rng"]
@@ -1865,19 +4018,41 @@ def _p3_craft(game, what):
         game.say("Craft what? Try 'recipes' to see what you can make.")
         return True
     
+    # Get craft bonus from preset
+    bonus = 0
+    if hasattr(game, "_p17"):
+        bonus = game._p17.get("preset_config", {}).get("craft_bonus", 0)
+    
     if what in ("bandage", "bandages"):
         fiber_count = game._p3["mats"].get("fiber", 0)
         if fiber_count >= 1:
             game._p3["mats"]["fiber"] = fiber_count - 1
             if hasattr(game, "_p2"):
-                game._p2["bandages"] = game._p2.get("bandages", 0) + 1
-                game.say("You craft a bandage (+1).")
+                amount = 1 + bonus
+                game._p2["bandages"] = game._p2.get("bandages", 0) + amount
+                game.say(f"You craft a bandage (+{amount}).")
                 game._update_inv_panel()
             else:
                 game.say("You craft a bandage, but have nowhere to store it yet.")
         else:
             game.say("Not enough fiber to craft a bandage. (Need: 1 fiber)")
         return True
+    
+    elif what in ("lesser potion", "lesser_potion", "potion_small", "small potion"):
+        herb_count = game._p3["mats"].get("herb", 0)
+        fiber_count = game._p3["mats"].get("fiber", 0)
+        if herb_count >= 1 and fiber_count >= 1:
+            game._p3["mats"]["herb"] -= 1
+            game._p3["mats"]["fiber"] -= 1
+            # Add potion to inventory
+            amount = 1 + bonus
+            game.player.inv["potion_small"] = game.player.inv.get("potion_small", 0) + amount
+            game.say(f"You craft a Lesser Potion (+{amount}). Restores 8 HP.")
+            game._update_inv_panel()
+        else:
+            game.say("Not enough materials. (Need: 1 herb + 1 fiber)")
+        return True
+    
     else:
         # Return False so advanced crafting can be checked
         return False
@@ -1886,10 +4061,17 @@ def _p3_recipes(game):
     game.say("=== Craftable Items ===")
     if hasattr(game, "_p3"):
         fiber = game._p3["mats"].get("fiber", 0)
+        herb = game._p3["mats"].get("herb", 0)
+        
         status = "✓" if fiber >= 1 else "✗"
         game.say(f"{status} Bandage - Requires: 1 fiber (you have: {fiber})")
+        
+        # Alternative recipe: Lesser Potion
+        status = "✓" if (herb >= 1 and fiber >= 1) else "✗"
+        game.say(f"{status} Lesser Potion - Requires: 1 herb + 1 fiber (you have: {herb} herb, {fiber} fiber)")
     else:
         game.say("Bandage - Requires: 1 fiber")
+        game.say("Lesser Potion - Requires: 1 herb + 1 fiber")
 
 def p3_ext_handle_command(cmd, args, game):
     prev = P3_PREV_EXT if P3_PREV_EXT is not p3_ext_handle_command else None
@@ -1899,6 +4081,10 @@ def p3_ext_handle_command(cmd, args, game):
         return True
 
     if cmd == "craft":
+        # IMPROVEMENT: First-time crafting hint
+        if hasattr(game, "_p3") and not game._p3.get("first_craft_hint_shown", False):
+            show_toast("💡 Tip: Type 'recipes' to see all craftable items", "info", 4000)
+            game._p3["first_craft_hint_shown"] = True
         # Try basic crafting (only bandages)
         result = _p3_craft(game, " ".join(args))
         # If basic craft handled it (True for bandages), return True
@@ -1960,18 +4146,61 @@ def _p5_spawn(game, forced=False):
     p5 = getattr(game, "_p5", None)
     if not p5 or p5["encounter"] is not None:
         return
+    
+    # Check preset config for encounter rate
+    if hasattr(game, "_p17"):
+        config = game._p17.get("preset_config", {})
+        if not config.get("encounter_enabled", True) and not forced:
+            return
+        encounter_rate = p5["rate"] * config.get("encounter_rate", 1.0)
+    else:
+        encounter_rate = p5["rate"]
+    
     if not forced:
         if not _p5_in_wilds(game):
             return
-        if p5["rng"].random() > p5["rate"]:
+        if p5["rng"].random() > encounter_rate:
             return
-    name = p5["rng"].choice(list(p5["bestiary"].keys()))
+    
+    # Roll for mini-boss (5% chance)
+    is_boss = False
+    if p5["rng"].random() <= 0.05:
+        # Get boss-type creatures
+        bosses = [name for name, data in p5["bestiary"].items() if data.get("is_boss")]
+        if bosses:
+            name = p5["rng"].choice(bosses)
+            is_boss = True
+            # Special mini-boss feedback
+            game.say("⚠️ A rare presence stirs...")
+            game.notify("warning", f"⭐ Rare encounter: {name}!")
+            if hasattr(game, "_p11") and game._p11.get("enabled"):
+                _p11_play_sound(220, 0.3, "triangle")  # Distinct mini-boss SFX
+        else:
+            name = p5["rng"].choice(list(p5["bestiary"].keys()))
+    else:
+        # Normal spawn - exclude bosses
+        normal_creatures = [name for name, data in p5["bestiary"].items() if not data.get("is_boss")]
+        if normal_creatures:
+            name = p5["rng"].choice(normal_creatures)
+        else:
+            name = p5["rng"].choice(list(p5["bestiary"].keys()))
+    
     hp_low, hp_high = p5["bestiary"][name]["hp"]
     hp = p5["rng"].randint(hp_low, hp_high)
-    p5["encounter"] = {"name": name, "hp": hp, "max_hp": hp}
+    p5["encounter"] = {"name": name, "hp": hp, "max_hp": hp, "is_boss": is_boss}
     first_time = name not in p5["seen"]
     p5["seen"].add(name)
-    game.say(f"A {name} emerges!", clickable=[name])
+    
+    if is_boss:
+        game.say(f"⚠️  RARE SPAWN! A {name} appears!", clickable=[name])
+        notify("warning", f"Rare Spawn: {name}!", 4000)
+        try:
+            window.playSound("rare")
+        except:
+            pass
+    else:
+        game.say(f"A {name} emerges!", clickable=[name])
+    
     if first_time:
         game.say("(New entry added to your bestiary.)")
         # Check Lore Keeper achievement when discovering new creatures
@@ -1996,6 +4225,14 @@ def _p5_player_hit(game, foe, skill=None):
             dmg = base_dmg * 2
             foe["hp"] = max(0, foe["hp"] - dmg)
             game.say(f"⚡ POWER STRIKE! You deal {dmg} damage to the {foe['name']}!")
+            
+            # IMPROVEMENT: 10% chance to stun enemy for 1 turn
+            if rng.random() < 0.10:
+                if "status" not in foe:
+                    foe["status"] = {}
+                foe["status"]["stun"] = 1
+                game.say(f"The {foe['name']} is STUNNED!")
+            
             return True
         else:
             game.say("You haven't unlocked Power Strike yet (Level 3).")
@@ -2093,7 +4330,7 @@ def _p5_enemy_hit(game, foe):
 def _p5_reward(game, foe):
     if getattr(game, "_p2", None) is not None:
         game._p2["xp"] = game._p2.get("xp", 0) + 1
-        game.say("(+1 XP)")
+        show_toast("+1 XP", "xp", 2000)
         
         # Track achievements
         if hasattr(game, "_p8"):
@@ -2112,6 +4349,59 @@ def _p5_reward(game, foe):
             game._p3["mats"][drop] = game._p3["mats"].get(drop, 0) + 1
             game.say(f"The {foe['name']} drops a {drop}.")
             game._update_inv_panel()
+
+# IMPROVEMENT: Added flee command for combat
+def _p5_cmd_flee(game):
+    """Flee from combat (60% base success, 85% in Pacifist mode)"""
+    p5 = getattr(game, "_p5", None)
+    if not p5 or p5["encounter"] is None:
+        return False
+    
+    # Calculate flee chance
+    base_flee_chance = 0.60
+    
+    # Check if in Pacifist mode/preset
+    if hasattr(game, "_p17"):
+        preset_config = game._p17.get("preset_config", {})
+        if preset_config.get("flee_bonus", 0) > 0:
+            base_flee_chance = 0.85
+    
+    # Check if preset modifiers apply
+    if hasattr(game, "_p16"):
+        base_flee_chance = _p16_apply_mode_modifiers(game, "flee_chance", base_flee_chance)
+    
+    # Roll for flee success
+    rng = p5.get("rng", random.Random())
+    if rng.random() < base_flee_chance:
+        # Success - end encounter and return to previous room
+        foe = p5["encounter"]
+        game.say(f"You flee from the {foe['name']}!")
+        _p5_end_encounter(game)
+        
+        # Return to previous room if available
+        if hasattr(game, "prev_room") and game.prev_room:
+            game.cur_room = game.prev_room
+            game.say(f"You escape to {game.room().name}.")
+        
+        return True
+    else:
+        # Fail - enemy gets a free attack
+        foe = p5["encounter"]
+        game.say(f"You fail to escape! The {foe['name']} seizes the opportunity!")
+        if _p5_enemy_hit(game, foe):
+            return True
+        
+        # IMPROVEMENT: Display HP with bracketed status tags
+        status_tags = []
+        if "status" in foe:
+            if "bleed" in foe["status"] and foe["status"]["bleed"] > 0:
+                status_tags.append("BLEEDING")
+            if "stun" in foe["status"] and foe["status"]["stun"] > 0:
+                status_tags.append("STUNNED")
+        
+        status_str = f" [{', '.join(status_tags)}]" if status_tags else ""
+        game.say(f"{foe['name']} HP: {foe['hp']}/{foe['max_hp']}{status_str}")
+        return True
 
 def _p5_handle_attack(game, args):
     p5 = getattr(game, "_p5", None)
@@ -2141,7 +4431,18 @@ def _p5_handle_attack(game, args):
         except Exception:
             pass
         return True
-    game.say(f"{foe['name']} HP: {foe['hp']}/{foe['max_hp']}")
+    
+    # IMPROVEMENT: Display HP with bracketed status tags
+    status_tags = []
+    if "status" in foe:
+        if "bleed" in foe["status"] and foe["status"]["bleed"] > 0:
+            status_tags.append("BLEEDING")
+        if "stun" in foe["status"] and foe["status"]["stun"] > 0:
+            status_tags.append("STUNNED")
+    
+    status_str = f" [{', '.join(status_tags)}]" if status_tags else ""
+    game.say(f"{foe['name']} HP: {foe['hp']}/{foe['max_hp']}{status_str}")
+    
     # CHANGE: per-turn cooldown tick after exchange
     try:
         _p5_on_turn_end(game)
@@ -2149,6 +4450,7 @@ def _p5_handle_attack(game, args):
         pass
     return True
 
+# IMPROVEMENT: Enhanced bestiary with progress tracking
 def _p5_bestiary(game):
     p5 = getattr(game, "_p5", None)
     if not p5:
@@ -2157,7 +4459,18 @@ def _p5_bestiary(game):
     if not p5["seen"]:
         print("Bestiary is empty.")
         return
-    print("Bestiary:")
+    
+    # Calculate progress
+    total_creatures = len(p5["bestiary"])
+    discovered = len(p5["seen"])
+    percentage = int((discovered / total_creatures * 100)) if total_creatures > 0 else 0
+    
+    # Progress bar (10 segments)
+    filled = int(discovered / total_creatures * 10) if total_creatures > 0 else 0
+    bar = "█" * filled + "░" * (10 - filled)
+    
+    print(f"=== Bestiary === Discovered: {discovered}/{total_creatures} [{bar}] {percentage}%")
+    print("")
     for name in sorted(p5["seen"]):
         lore = p5["bestiary"].get(name, {}).get("lore", "")
         print(f"- {name}: {lore}")
@@ -2355,10 +4668,22 @@ def p5_ext_handle_command(cmd, args, game):
 
     if cmd == "attack":
         if getattr(game, "_p5", None) and game and game._p5["encounter"]:
+            # IMPROVEMENT: First-time combat hint
+            if not game._p5.get("first_combat_hint_shown", False):
+                show_toast("💡 Tip: Use 'flee' to escape difficult fights", "info", 4000)
+                game._p5["first_combat_hint_shown"] = True
             return _p5_handle_attack(game, args)
         if prev and prev(cmd, args, game):
             return True
         return False
+
+    # IMPROVEMENT: Flee command for escaping combat
+    if cmd == "flee":
+        if getattr(game, "_p5", None) and game and game._p5["encounter"]:
+            return _p5_cmd_flee(game)
+        else:
+            game.say("You're not in combat.")
+            return True
 
     if cmd == "rest":
         if getattr(game, "_p5", None) and game and game._p5["encounter"]:
@@ -2516,59 +4841,67 @@ def _p6_apply_reward(game, reward: dict) -> None:
         game.say(f"(+{int(reward['gold'])} gold)")
     if "xp" in reward and getattr(game, "_p2", None) is not None:
         game._p2["xp"] = game._p2.get("xp", 0) + int(reward["xp"])
-        game.say(f"(+{int(reward['xp'])} XP)")
+        show_toast(f"+{int(reward['xp'])} XP", "xp", 2500)
 
 def _p6_do_action(game, action_id: str):
     q = game._p6["quests"]["heal_grove"]
 
     if action_id == "ct_intro":
-        game.say('Caretaker: "A watcher of thresholds. I keep small fires lit."')
+        variant = random.choice(CARETAKER_VARIANTS.get("intro", ['"A watcher of thresholds. I keep small fires lit."']))
+        npc_say(game, "caretaker", variant)
         return
     if action_id == "ct_place":
-        game.say('Caretaker: "These halls are called the Sanctum. The Wilds press close."')
+        game.say('The Caretaker: "These halls are called the Sanctum. The Wilds press close."')
+        npc_random_comment(game, "caretaker")
         return
     if action_id == "ct_wilds":
-        game.say('Caretaker: "Beyond the gate lies the Whispering Wilds - dangerous, but full of wonder."')
+        variant = random.choice(CARETAKER_VARIANTS.get("wilds", ['"Beyond the gate lies the Whispering Wilds - dangerous, but full of wonder."']))
+        npc_say(game, "caretaker", variant)
         return
     if action_id == "ct_threats":
-        game.say('Caretaker: "Shadow Wisps and Briar Hounds roam the wilds. Be prepared."')
+        game.say('The Caretaker: "Shadow Wisps and Briar Hounds roam the wilds. Be prepared."')
+        game.say('The Caretaker: "*lowers voice* They hunt in shadows. Move with purpose, not panic."')
         return
     if action_id == "ct_offer_quest":
         q["state"] = "offered"
-        game.say('Caretaker: "The northern grove is sick. Bring me 2 herbs for a remedy."')
+        variant = random.choice(CARETAKER_VARIANTS.get("grove_sick", ['"The northern grove is sick. Bring me 2 herbs for a remedy."']))
+        npc_say(game, "caretaker", variant)
         game.say("Type: accept heal_grove   (or talk caretaker again for details)")
         return
     if action_id == "ct_grove_lore":
-        game.say('Caretaker: "The northern grove has stood for centuries. Now it withers."')
+        game.say('The Caretaker: "*touches ancient bark reverently* The northern grove has stood for centuries. Now it withers."')
         return
     if action_id == "ct_remind":
         need = ", ".join(f"{v} {k}" for k, v in q["need"].items())
-        game.say(f'Caretaker: "Gather {need}. The grove north of here is fading."')
+        game.say(f'The Caretaker: "Gather {need}. The grove north of here is fading... like old memories."')
         return
     if action_id == "ct_herb_tips":
-        game.say('Caretaker: "Forage in the wilds. Herbs grow where danger lurks."')
+        game.say('The Caretaker: "Forage in the wilds. Herbs grow where danger lurks. Balance, always."')
         return
     if action_id == "ct_grove_sick":
-        game.say('Caretaker: "The trees lose their silver. The remedy requires rare herbs."')
+        variant = random.choice(CARETAKER_VARIANTS.get("grove_sick", ['"The trees lose their silver. The remedy requires rare herbs."']))
+        npc_say(game, "caretaker", variant)
         return
     if action_id == "ct_turnin":
         if q["state"] != "completed":
-            game.say('Caretaker: "You seem unready yet."')
+            game.say('The Caretaker: "*studies you with ancient eyes* You seem unready yet."')
             return
-        game.say('Caretaker: "If you are certain, give them here."')
+        game.say('The Caretaker: "*extends weathered hands* If you are certain, give them here."')
         game.say("Use: turnin heal_grove")
         return
     if action_id == "ct_after":
-        game.say('Caretaker: "The grove breathes easier. Thank you."')
+        game.say('The Caretaker: "*closes eyes, listening* The grove breathes easier. The land... remembers gratitude."')
         return
     if action_id == "ct_more_work":
-        game.say('Caretaker: "The wilds hold many needs. Seek the Trader and Ranger."')
+        game.say('The Caretaker: "The wilds hold many needs. Seek the Trader by the lake, the Ranger in camp."')
+        game.say('The Caretaker: "*almost smiles* They are... less cryptic than I."')
         return
     if action_id == "ct_story":
-        game.say('Caretaker: "Long ago, these halls were full of light. Now we tend what remains."')
+        game.say('The Caretaker: "*gazes into candlelight* Long ago, these halls were full of light. Laughter. Life."')
+        game.say('The Caretaker: "Now we tend what remains. It is... enough. It must be."')
         return
     if action_id == "ct_bye":
-        game.say("You end the conversation.")
+        game.say('The Caretaker: "*nods slowly* May the wilds show you mercy."')
         game._p6["dialog"] = None
         return
 
@@ -2747,6 +5080,7 @@ def _p6_fmt_progress(game, q):
         return ", ".join(f"{k} {mats.get(k,0)}/{v}" for k, v in q.get("need", {}).items())
     return ""
 
+# IMPROVEMENT: Enhanced quest panel with material requirements and gather hints
 def _p6_update_quest_panel(game):
     qs = getattr(game, "_p6", {}).get("quests", {})
     # Also check Part 7 quests
@@ -2766,10 +5100,38 @@ def _p6_update_quest_panel(game):
         # Make title clickable in panel to autofill 'quest <qid>'
         title_html = f"<span class=\"clickable\" data-cmd=\"quest {key}\">{title}</span>"
         line = f"{title_html}: {state}"
+        
+        # IMPROVEMENT: Show material requirements with check/cross indicators
         if getattr(game, "_p3", None) is not None and "need" in q and state in ("accepted", "completed"):
             prog = _p6_fmt_progress(game, q)
             if prog:
-                line += f" ({prog})"
+                # Add visual indicators for completion
+                prog_parts = []
+                for mat, needed in q.get("need", {}).items():
+                    mats = game._p3.get("mats", {})
+                    have = mats.get(mat, 0)
+                    indicator = "✓" if have >= needed else "✗"
+                    prog_parts.append(f"{indicator} {mat} {have}/{needed}")
+                
+                line += f" ({', '.join(prog_parts)})"
+                
+                # Add clickable gather hints for missing materials
+                missing_hints = []
+                for mat, needed in q.get("need", {}).items():
+                    have = game._p3.get("mats", {}).get(mat, 0)
+                    if have < needed:
+                        if mat == "herb" or mat == "fiber":
+                            missing_hints.append(f"<span class=\"clickable\" data-cmd=\"forage\">forage</span>")
+                        elif mat == "ore":
+                            missing_hints.append(f"<span class=\"clickable\" data-cmd=\"mine\">mine</span>")
+                        elif mat == "fish":
+                            missing_hints.append(f"<span class=\"clickable\" data-cmd=\"fish\">fish</span>")
+                        elif mat == "glowcap":
+                            missing_hints.append(f"<span class=\"clickable\" data-cmd=\"harvest\">harvest</span>")
+                
+                if missing_hints and state == "accepted":
+                    line += f" → Try: {', '.join(set(missing_hints))}"
+            
             if state == "completed":
                 # Add quick turnin clickable
                 line += f" → <span class=\"clickable\" data-cmd=\"turnin {key}\">Turn in</span>"
@@ -2777,6 +5139,7 @@ def _p6_update_quest_panel(game):
 
     update_panel("quests", quest_html if quest_html else "No active quests")
 
+# IMPROVEMENT: Quest filtering (active/completed/all)
 def _p6_cmd_quests(game) -> bool:
     if not game:
         print("No quests to list.")
@@ -2786,10 +5149,25 @@ def _p6_cmd_quests(game) -> bool:
         game.say("No quests.")
         return True
 
-    game.say("Quests:")
+    # Determine filter mode
+    filter_mode = "all"  # default
+    if hasattr(game, "_p6_quest_filter"):
+        filter_mode = game._p6_quest_filter
+
+    game.say(f"Quests ({filter_mode}):")
+    shown_count = 0
+    
     for key, q in qs.items():
         title = q["title"]
         state = q["state"]
+        
+        # Apply filter
+        if filter_mode == "active" and state not in ("offered", "accepted", "completed"):
+            continue
+        elif filter_mode == "completed" and state != "turned_in":
+            continue
+        
+        shown_count += 1
         base = f"- {title}: {state}"
         if getattr(game, "_p3", None) is not None and "need" in q and state in ("accepted", "completed"):
             prog = _p6_fmt_progress(game, q)
@@ -2804,7 +5182,11 @@ def _p6_cmd_quests(game) -> bool:
         # Default: clickable quest detail
         cmd = f"quest {key}"
         game.say(base, clickable=[cmd])
-
+    
+    if shown_count == 0:
+        game.say(f"No {filter_mode} quests.")
+    
+    game.say(f"\nFilter: 'quests active', 'quests completed', 'quests all'")
     _p6_update_quest_panel(game)
     return True
 
@@ -2847,6 +5229,9 @@ def p6_ext_handle_command(cmd, args, game):
         return _p6_cmd_say(game, args)
 
     if cmd == "quests":
+        # IMPROVEMENT: Handle quest filtering
+        if args and args[0].lower() in ("active", "completed", "all"):
+            game._p6_quest_filter = args[0].lower()
         return _p6_cmd_quests(game)
 
     if cmd == "quest":
@@ -2991,9 +5376,19 @@ def _p7_cmd_fish(game, args) -> bool:
         game.say("You can only fish at the Moonlit Lake or its depths.")
         return True
     
-    # Check cooldown
+    # IMPROVEMENT: Check cooldown with clearer messaging
     if hasattr(game, "_p3") and game._p3.get("gather_cooldown", 0) > 0:
-        game.say(f"You need to rest before fishing again. (Wait {game._p3['gather_cooldown']} more actions)")
+        game.say(f"Wait {game._p3['gather_cooldown']} more actions (any command except gather/fish/mine/harvest).")
+        # IMPROVEMENT: Show one-time cooldown tip using localStorage
+        try:
+            from js import localStorage, window
+            if not localStorage.getItem("wilds_cooldown_tip_shown"):
+                hints_on = localStorage.getItem("wilds_hints")
+                if hints_on is None or hints_on == "true":
+                    show_toast("💡 Tip: Cooldowns reset when you do other actions like move, talk, or craft.", "info", 5000)
+                localStorage.setItem("wilds_cooldown_tip_shown", "true")
+        except:
+            pass
         return True
     
     rng = _p7_rng(game)
@@ -3054,9 +5449,19 @@ def _p7_cmd_mine(game, args) -> bool:
         game.say("You need a rock face to mine.")
         return True
     
-    # Check cooldown
+    # IMPROVEMENT: Check cooldown with clearer messaging
     if hasattr(game, "_p3") and game._p3.get("gather_cooldown", 0) > 0:
-        game.say(f"You need to rest before mining again. (Wait {game._p3['gather_cooldown']} more actions)")
+        game.say(f"Wait {game._p3['gather_cooldown']} more actions (any command except gather/fish/mine/harvest).")
+        # IMPROVEMENT: Show one-time cooldown tip using localStorage
+        try:
+            from js import localStorage, window
+            if not localStorage.getItem("wilds_cooldown_tip_shown"):
+                hints_on = localStorage.getItem("wilds_hints")
+                if hints_on is None or hints_on == "true":
+                    show_toast("💡 Tip: Cooldowns reset when you do other actions like move, talk, or craft.", "info", 5000)
+                localStorage.setItem("wilds_cooldown_tip_shown", "true")
+        except:
+            pass
         return True
     
     rng = _p7_rng(game)
@@ -3206,124 +5611,153 @@ def _p7_open_ranger_dialog(game):
 def _p7_open_hermit_dialog(game):
     q = game._p6["quests"]["hermit_glow"]
     state = q["state"]
+    
+    # Check if Hermit's Riddle is available
+    riddle_quest = game._p6["quests"].get("hermit_riddle", {})
+    riddle_available = riddle_quest.get("state") == "new"
+    
     if state in ("new", "offered"):
         opts = [
             ("What brings you to the wilds?", "hm_story"),
             ("Can I assist you?", "hm_offer_quest"),
-            ("Goodbye.", "hm_bye"),
         ]
+        if riddle_available:
+            opts.append(("I enjoy riddles. Do you have one?", "hm_riddle"))
+        opts.append(("Goodbye.", "hm_bye"))
     elif state == "accepted":
         opts = [
             ("What are glowcaps again?", "hm_remind"),
             ("Where do glowcaps grow?", "hm_glow_tips"),
-            ("Goodbye.", "hm_bye"),
         ]
+        if riddle_available:
+            opts.append(("I enjoy riddles. Do you have one?", "hm_riddle"))
+        opts.append(("Goodbye.", "hm_bye"))
     elif state == "completed":
         opts = [
             ("I have the glowcaps.", "hm_turnin"),
-            ("Goodbye.", "hm_bye"),
         ]
+        if riddle_available:
+            opts.append(("I enjoy riddles. Do you have one?", "hm_riddle"))
+        opts.append(("Goodbye.", "hm_bye"))
     else:
         opts = [
             ("How is your salve?", "hm_after"),
-            ("Goodbye.", "hm_bye"),
         ]
+        if riddle_available:
+            opts.append(("I enjoy riddles. Do you have one?", "hm_riddle"))
+        opts.append(("Goodbye.", "hm_bye"))
     _p6_show_dialog(game, "Hermit", opts)
 
 def _p7_do_action(game, action_id: str):
     # Trader actions
     if action_id == "tr_wares":
-        game.say('Trader: "Bits and bobs. Mostly I deal in fish and favors."')
+        game.say('The Trader: "*gestures broadly* Bits and bobs. Mostly I deal in fish and favors."')
+        game.say('The Trader: "And stories! Can\'t forget stories. Worth their weight in... well, stories!"')
         return
     if action_id == "tr_offer_quest":
         q = game._p6["quests"]["angler_aid"]
         q["state"] = "offered"
-        game.say('Trader: "Bring me 2 fish from the lake. I\'ll pay well."')
+        variant = random.choice(TRADER_VARIANTS.get("quest_offer", ['"Bring me 2 fish from the lake. I\'ll pay well."']))
+        npc_say(game, "trader", variant)
         game.say("Type: accept angler_aid")
         return
     if action_id == "tr_remind":
-        game.say('Trader: "Two fish from the Moonlit Lake. Fresh as you can manage."')
+        game.say('The Trader: "Two fish from the Moonlit Lake. Fresh as you can manage. Scales intact!"')
         return
     if action_id == "tr_fish_tips":
-        game.say('Trader: "The lake is north of the main wilds. Use \'fish\' when you\'re there."')
+        game.say('The Trader: "The lake is north of the main wilds. Use \'fish\' when you\'re there. Easy!"')
+        game.say('The Trader: "*whispers* Well, easy-ISH. There might be... things. In the water."')
         return
     if action_id == "tr_turnin":
         q = game._p6["quests"]["angler_aid"]
         if q["state"] != "completed":
-            game.say('Trader: "Not quite ready yet."')
+            game.say('The Trader: "*peers at you hopefully* Not quite ready yet? Take your time! Well, don\'t take TOO long..."')
             return
-        game.say('Trader: "Perfect! Here\'s your payment."')
+        variant = random.choice(TRADER_VARIANTS.get("completed", ['"Perfect! Here\'s your payment."']))
+        npc_say(game, "trader", variant)
         game.say("Use: turnin angler_aid")
         return
     if action_id == "tr_again":
-        game.say('Trader: "Nothing new today. Check back later."')
+        game.say('The Trader: "*sighs dramatically* Nothing new today. Check back later! Or don\'t. But do!"')
         return
     if action_id == "tr_bye":
-        game.say("You step away from the counter.")
+        game.say('The Trader: "*waves enthusiastically* Safe travels, friend! Come back soon! I mean it!"')
         game._p6["dialog"] = None
         return
 
     # Ranger actions
     if action_id == "rg_job":
-        game.say('Ranger: "I watch the wilds, keep the camp safe."')
+        variant = random.choice(RANGER_VARIANTS.get("greeting", ['"I watch the wilds, keep the camp safe."']))
+        npc_say(game, "ranger", variant)
         return
     if action_id == "rg_offer_quest":
         q = game._p6["quests"]["mine_matters"]
         q["state"] = "offered"
-        game.say('Ranger: "I need 2 ore to repair gear. The mine to the east has some."')
+        variant = random.choice(RANGER_VARIANTS.get("quest_offer", ['"I need 2 ore to repair gear. The mine to the east has some."']))
+        npc_say(game, "ranger", variant)
         game.say("Type: accept mine_matters")
         return
     if action_id == "rg_remind":
-        game.say('Ranger: "Two chunks of ore from the Abandoned Mine."')
+        game.say('The Ranger: "*gestures east* Two chunks of ore from the Abandoned Mine. Standard grade."')
         return
     if action_id == "rg_mine_tips":
-        game.say('Ranger: "East of the wilds. Use \'mine\' to extract ore."')
+        game.say('The Ranger: "East of the wilds. Use \'mine\' to extract ore. Watch for cave-ins."')
         return
     if action_id == "rg_turnin":
         q = game._p6["quests"]["mine_matters"]
         if q["state"] != "completed":
-            game.say('Ranger: "Still need that ore."')
+            game.say('The Ranger: "*shakes head* Still need that ore. Time\'s wasting."')
             return
-        game.say('Ranger: "Excellent work. Here\'s your reward."')
+        variant = random.choice(RANGER_VARIANTS.get("completed", ['"Excellent work. Here\'s your reward."']))
+        npc_say(game, "ranger", variant)
         game.say("Use: turnin mine_matters")
         return
     if action_id == "rg_after":
-        game.say('Ranger: "The gear is fixed. Camp runs smoothly."')
+        game.say('The Ranger: "*checks repaired gear* The gear is fixed. Camp runs smoothly. Good work."')
         return
     if action_id == "rg_bye":
-        game.say("You nod and step back.")
+        game.say('The Ranger: "*salutes* Dismissed. Stay vigilant out there."')
         game._p6["dialog"] = None
         return
 
     # Hermit actions
     if action_id == "hm_story":
-        game.say('Hermit: "I came for silence. Found purpose in herbs and remedies."')
+        variant = random.choice(HERMIT_VARIANTS.get("intro", ['"I came for silence. Found purpose in herbs and remedies."']))
+        npc_say(game, "hermit", variant)
         return
     if action_id == "hm_offer_quest":
         q = game._p6["quests"]["hermit_glow"]
         q["state"] = "offered"
-        game.say('Hermit: "I need 3 glowcaps for a healing salve. They grow in damp places."')
+        variant = random.choice(HERMIT_VARIANTS.get("quest_offer", ['"I need 3 glowcaps for a healing salve. They grow in damp places."']))
+        npc_say(game, "hermit", variant)
         game.say("Type: accept hermit_glow")
         return
     if action_id == "hm_remind":
-        game.say('Hermit: "Glowcaps - pale fungi that glow faintly in the dark."')
+        game.say('The Hermit: "*waves hand* Glowcaps - pale fungi that glow faintly in the dark. Duh."')
         return
     if action_id == "hm_glow_tips":
-        game.say('Hermit: "Damp cellars, wet caves. Use \'harvest\' when you find them."')
+        game.say('The Hermit: "Damp cellars, wet caves. Use \'harvest\' when you find them. If you can."')
         return
     if action_id == "hm_turnin":
         q = game._p6["quests"]["hermit_glow"]
         if q["state"] != "completed":
-            game.say('Hermit: "Not enough glowcaps yet."')
+            game.say('The Hermit: "*barely looks up* Not enough glowcaps yet. Obviously."')
             return
-        game.say('Hermit: "These will do nicely. Your reward."')
+        variant = random.choice(HERMIT_VARIANTS.get("completed", ['"These will do nicely. Your reward."']))
+        npc_say(game, "hermit", variant)
         game.say("Use: turnin hermit_glow")
         return
     if action_id == "hm_after":
-        game.say('Hermit: "The salve works well. Many thanks."')
+        game.say('The Hermit: "*grinding new herbs* The salve works well. Many thanks. Now shoo."')
+        return
+    if action_id == "hm_riddle":
+        # Trigger The Hermit's Riddle quest
+        if hasattr(game, "_p17"):
+            _p17_start_hermit_riddle(game)
+        game._p6["dialog"] = None
         return
     if action_id == "hm_bye":
-        game.say("You leave the hermit to their work.")
+        game.say('The Hermit: "*already back to work* Right. Off you go then."')
         game._p6["dialog"] = None
         return
 
@@ -3553,6 +5987,7 @@ def part8_post_init(game):
         except:
             pass
 
+# IMPROVEMENT: Achievement unlock with enhanced 5-second toast
 def _p8_unlock(game, ach_id: str):
     """Unlock an achievement and notify player"""
     if not hasattr(game, "_p8"):
@@ -3561,6 +5996,8 @@ def _p8_unlock(game, ach_id: str):
     if ach and not ach["unlocked"]:
         ach["unlocked"] = True
         game.say(f"🏆 Achievement Unlocked: {ach['name']} - {ach['desc']}")
+        # IMPROVEMENT: Enhanced achievement toast - 5 second duration
+        show_toast(f"🏆 {ach['name']}", "success", 5000)
         _p8_save_achievements(game)
         _p8_check_legendary(game)
 
@@ -4307,11 +6744,14 @@ def run_tests(game):
 # SAVE/LOAD SYSTEM
 # ===========================
 
-def save_game(game):
+# IMPROVEMENT: Save with timestamp and auto-save toast
+def save_game(game, auto=False):
     """Save game state to localStorage with robust error handling"""
     try:
-        # CHANGE: save includes armor & cooldowns
+        from datetime import datetime
+        # CHANGE: save includes armor, cooldowns, version, and UI preferences
         state = {
+            "version": "8.0",  # Save format version for migration
             "cur_room": game.cur_room,
             "player": {
                 "hp": game.player.hp,
@@ -4324,17 +6764,24 @@ def save_game(game):
             "_p3": game._p3 if hasattr(game, "_p3") else None,
             "_p6": game._p6 if hasattr(game, "_p6") else None,
             "_p5": {"seen": list(game._p5.get("seen", []))} if hasattr(game, "_p5") else None,
+            "_p17": game._p17 if hasattr(game, "_p17") else None,
             "room_seen": {rid: r.seen for rid, r in game.world.rooms.items()},
+            "saved_at": datetime.now().isoformat(),  # IMPROVEMENT: Save timestamp
         }
 
         json_str = pyjson.dumps(state)
         localStorage.setItem("wilds_save", json_str)
-        game.say("✓ Game saved successfully to browser storage.")
+        
+        # IMPROVEMENT: Different messaging for auto-save vs manual save
+        if auto:
+            show_toast("💾 Auto-saved", "info", 2000)
+        else:
+            game.say("✓ Game saved successfully to browser storage.")
     except Exception as e:
         game.say(f"✗ Save failed: {e}")
 
 def load_game(game):
-    """Load game state from localStorage with validation"""
+    """Load game state from localStorage with validation and migration"""
     saved = localStorage.getItem("wilds_save")
     if not saved:
         game.say("✗ No save found. Use 'save' to create one.")
@@ -4347,6 +6794,9 @@ def load_game(game):
         # Validate basic structure
         if not isinstance(state, dict):
             raise ValueError("Invalid save format")
+        
+        # Migration: Check version and add defaults for missing fields
+        save_version = state.get("version", "7.0")  # Old saves are v7
         
         game.cur_room = state.get("cur_room", game.world.start_room)
         # Restore player block
@@ -4374,6 +6824,23 @@ def load_game(game):
                 pass
         if state.get("_p5") and hasattr(game, "_p5"):
             game._p5["seen"] = set(list(state["_p5"].get("seen", [])))
+        
+        # Migration: Restore or initialize _p17 with safe defaults
+        if state.get("_p17") and hasattr(game, "_p17"):
+            game._p17.update(state["_p17"])
+            
+        # Ensure critical _p17 fields exist with defaults
+        if hasattr(game, "_p17"):
+            if "preset" not in game._p17:
+                game._p17["preset"] = "explorer"
+            if "verbosity" not in game._p17:
+                game._p17["verbosity"] = "normal"
+            if "story_flags" not in game._p17:
+                game._p17["story_flags"] = {}
+            if "sort_mode" not in game._p17:
+                game._p17["sort_mode"] = "type"
+            if "last_sense" not in game._p17:
+                game._p17["last_sense"] = 0
 
         # Restore room visibility
         for rid, seen in (state.get("room_seen", {}) or {}).items():
@@ -4381,6 +6848,8 @@ def load_game(game):
                 game.world.rooms[rid].seen = seen
 
         game.say("✓ Game loaded successfully.")
+        if save_version != "8.0":
+            game.say("(Migrated from v" + save_version + " → v8.0)")
         game.look()
         game._update_inv_panel()
         _p6_update_quest_panel(game)
@@ -4531,6 +7000,7 @@ def _p14_check_tutorial_progress(game, cmd, args):
     
     return False
 
+# IMPROVEMENT: Tutorial completion with XP bonus
 def _p14_complete_tutorial(game):
     """Complete the tutorial"""
     game._p14["active"] = False
@@ -4539,6 +7009,15 @@ def _p14_complete_tutorial(game):
     game.say("║      🎉 TUTORIAL COMPLETE!              ║")
     game.say("╚═══════════════════════════════════════════╝")
     game.say("")
+    
+    # IMPROVEMENT: Award +5 XP for tutorial completion
+    if hasattr(game, "_p2"):
+        game._p2["xp"] = game._p2.get("xp", 0) + 5
+        show_toast("+5 XP (Tutorial Complete!)", "success", 3000)
+        # Check for level up
+        if hasattr(game, "_p11"):
+            _p11_check_level_up(game)
+    
     game.say("You've learned the basics! Here are more tips:")
     game.say("• Type 'help' to see ALL commands")
     game.say("• Talk to NPCs for quests: 'talk caretaker'")
@@ -4573,11 +7052,10 @@ def p14_ext_handle_command(cmd, args, game):
             return True
         return False
     
-    # Skip tutorial command (both "skip" and "skip tutorial" work)
+    # IMPROVEMENT: Skip tutorial command with XP bonus
     if game._p14["active"] and cmd == "skip":
-        game._p14["active"] = False
+        _p14_complete_tutorial(game)
         game.say("Tutorial skipped. Type 'help' for command list.")
-        localStorage.setItem("wilds_tutorial_done", "true")
         return True
     
     # Check tutorial progress
@@ -4619,11 +7097,11 @@ ext_handle_command = p14_ext_handle_command
 
 P15_PREV_EXT = globals().get("ext_handle_command", None)
 
-# Level thresholds and rewards
+# IMPROVEMENT: Rebalanced level thresholds for faster early game progression
 LEVEL_THRESHOLDS = [
     (0, 1, 10, 2),      # Level 1: 0 XP, 10 HP, 2 damage
-    (10, 2, 12, 3),     # Level 2: 10 XP, +2 HP, +1 damage
-    (25, 3, 15, 4),     # Level 3: 25 XP (unlock Power Strike)
+    (8, 2, 12, 3),      # Level 2: 8 XP (was 10), +2 HP, +1 damage
+    (18, 3, 15, 4),     # Level 3: 18 XP (was 25) (unlock Power Strike)
     (45, 4, 18, 5),     # Level 4: 45 XP
     (70, 5, 22, 6),     # Level 5: 70 XP (unlock Heal)
     (100, 6, 26, 7),    # Level 6: 100 XP
@@ -4682,6 +7160,7 @@ def _p11_check_level_up(game):
                 game.say(f"• Max HP increased: {old_max_hp} → {max_hp}")
                 game.say(f"• Damage increased to {damage}")
                 game.say(f"• HP restored to full!")
+                show_toast(f"⭐ LEVEL UP! Now Level {new_level}!", "success", 4000)
                 
                 # Check for skill unlocks
                 if new_level == 3 and "power_strike" not in game._p11["skills_unlocked"]:
@@ -4887,7 +7366,18 @@ def _p15_cmd_fish(game, args):
     # Moon-Spring fishing
     if room_id == "wilds_spring":
         if hasattr(game, "_p3") and game._p3.get("gather_cooldown", 0) > 0:
-            game.say(f"You need to rest before fishing again. (Wait {game._p3['gather_cooldown']} more actions)")
+            # IMPROVEMENT: Standardized cooldown message
+            game.say(f"Wait {game._p3['gather_cooldown']} more actions (any command except gather/fish/mine/harvest).")
+            # IMPROVEMENT: Show one-time cooldown tip using localStorage
+            try:
+                from js import localStorage, window
+                if not localStorage.getItem("wilds_cooldown_tip_shown"):
+                    hints_on = localStorage.getItem("hintsEnabled")
+                    if hints_on is None or hints_on == "true":
+                        show_toast("💡 Tip: Cooldowns reset when you do other actions like move, talk, or craft.", "info", 5000)
+                    localStorage.setItem("wilds_cooldown_tip_shown", "true")
+            except:
+                pass
             return True
         
         rng = game._p15.get("rng", random.Random())
@@ -4921,7 +7411,18 @@ def _p15_cmd_mine(game, args):
         return False
     
     if hasattr(game, "_p3") and game._p3.get("gather_cooldown", 0) > 0:
-        game.say(f"You need to rest before mining again. (Wait {game._p3['gather_cooldown']} more actions)")
+        # IMPROVEMENT: Standardized cooldown message
+        game.say(f"Wait {game._p3['gather_cooldown']} more actions (any command except gather/fish/mine/harvest).")
+        # IMPROVEMENT: Show one-time cooldown tip using localStorage
+        try:
+            from js import localStorage, window
+            if not localStorage.getItem("wilds_cooldown_tip_shown"):
+                hints_on = localStorage.getItem("wilds_hints")
+                if hints_on is None or hints_on == "true":
+                    show_toast("💡 Tip: Cooldowns reset when you do other actions like move, talk, or craft.", "info", 5000)
+                localStorage.setItem("wilds_cooldown_tip_shown", "true")
+        except:
+            pass
         return True
     
     rng = game._p15.get("rng", random.Random())
@@ -4959,8 +7460,20 @@ def _p15_cmd_harvest(game, args):
     if room_id not in ("wilds_marsh", "wilds_spring"):
         return False
     
+    # IMPROVEMENT: Check cooldown with clearer messaging
     if hasattr(game, "_p3") and game._p3.get("gather_cooldown", 0) > 0:
-        game.say(f"You need to rest before harvesting again. (Wait {game._p3['gather_cooldown']} more actions)")
+        game.say(f"Wait {game._p3['gather_cooldown']} more actions (any command except gather/fish/mine/harvest).")
+        # IMPROVEMENT: Show one-time cooldown tip using localStorage
+        try:
+            from js import localStorage, window
+            if not localStorage.getItem("wilds_cooldown_tip_shown"):
+                # Check hints toggle
+                hints_on = localStorage.getItem("wilds_hints")
+                if hints_on is None or hints_on == "true":
+                    show_toast("💡 Tip: Cooldowns reset when you do other actions like move, talk, or craft.", "info", 5000)
+                localStorage.setItem("wilds_cooldown_tip_shown", "true")
+        except:
+            pass
         return True
     
     rng = game._p15.get("rng", random.Random())
@@ -5049,7 +7562,7 @@ def _p15_cmd_climb(game, args):
                 game.say("✓ Quest complete: Tower Beacon")
                 if hasattr(game, "_p2"):
                     game._p2["xp"] = game._p2.get("xp", 0) + 15
-                    game.say("(+15 XP)")
+                    show_toast("+15 XP", "xp", 3000)
                 if hasattr(game, "_p3"):
                     game._p3["gold"] = game._p3.get("gold", 0) + 20
                     game.say("(+20 gold)")
@@ -5324,7 +7837,7 @@ def p15_ext_handle_command(cmd, args, game):
                         if "xp" in quest.get("reward", {}):
                             if hasattr(game, "_p2"):
                                 game._p2["xp"] = game._p2.get("xp", 0) + quest["reward"]["xp"]
-                                game.say(f"(+{quest['reward']['xp']} XP)")
+                                show_toast(f"+{quest['reward']['xp']} XP", "xp", 3000)
                         
                         game._update_quest_panel()
                         game._update_inv_panel()
@@ -5402,11 +7915,14 @@ def _p12_assign_new_goal(game):
     if goal["type"] == "talk":
         game._p12["npcs_talked_to"] = set()
     
-    # Show new micro-goal notification
-    game.say("")
-    game.say(f"🎯 New Micro-Goal: {goal['desc']}")
-    game.say(f"   Reward: +{goal['reward']['xp']} XP, +{goal['reward']['gold']} Gold")
-    game.say("")
+    # Show new micro-goal notification with duplicate detection
+    msg = f"{goal['desc']}"
+    should_show, count = should_show_message(msg, "micro_goal", 10)
+    
+    if should_show:
+        show_toast(f"🎯 {goal['desc']}", "info", 4000)
+    else:
+        show_toast(f"🎯 {goal['desc']} (×{count})", "info", 3000)
 
 def _p12_track_action(game, action_type, identifier=None):
     """Track player actions for micro-goals"""
@@ -5466,11 +7982,11 @@ def _p12_complete_goal(game, goal):
     # Give rewards
     if hasattr(game, "_p2"):
         game._p2["xp"] = game._p2.get("xp", 0) + goal["reward"]["xp"]
-        game.say(f"💫 +{goal['reward']['xp']} XP")
+        show_toast(f"💫 +{goal['reward']['xp']} XP", "xp", 3000)
     
     if hasattr(game, "_p3"):
         game._p3["gold"] = game._p3.get("gold", 0) + goal["reward"]["gold"]
-        game.say(f"💰 +{goal['reward']['gold']} Gold")
+        show_toast(f"💰 +{goal['reward']['gold']} Gold", "success", 3000)
     
     game.say("")
     
@@ -5519,12 +8035,12 @@ def p13_post_init(game):
     game._p13 = {
         "sold_items": {},  # Track items sold by player
         "shop_items": {
-            "healing_potion": {"name": "Healing Potion", "price": 15, "desc": "Restores 20 HP"},
+            "healing_potion": {"name": "Healing Potion", "price": 12, "desc": "Restores 20 HP"},  # IMPROVEMENT: Reduced from 15 to 12
             # CHANGE: Add unified potion items (potion = shop large, potion_small = crafted lesser)
             "potion": {"name": "Potion", "price": 25, "desc": "Restores 20 HP"},
             "potion_small": {"name": "Lesser Potion", "price": 8, "desc": "Restores 8 HP"},
-            "bandage": {"name": "Bandages", "price": 8, "desc": "Restores 10 HP"},
-            "herbs": {"name": "Herbs", "price": 5, "desc": "Crafting ingredient"},
+            "bandage": {"name": "Bandages", "price": 5, "desc": "Restores 10 HP"},  # IMPROVEMENT: Reduced from 8 to 5
+            "herbs": {"name": "Herbs", "price": 3, "desc": "Crafting ingredient"},  # IMPROVEMENT: Reduced from 5 to 3
             "lucky_charm": {"name": "Lucky Charm", "price": 50, "desc": "Increases crit chance by 5%"},
             "iron_dagger": {"name": "Iron Dagger", "price": 30, "desc": "Increases damage by 2"},
             "fishing_rod": {"name": "Fishing Rod", "price": 12, "desc": "Improves fishing success (+15%)"},
@@ -6165,6 +8681,7 @@ def _p16_normalize_text(text):
     
     return text
 
+# IMPROVEMENT: Enhanced command aliases for better UX
 def _p16_get_synonyms():
     """Return command synonyms map"""
     return {
@@ -6180,6 +8697,14 @@ def _p16_get_synonyms():
         "tasks": "quests", "missions": "quests", "quest": "quests",
         "make": "craft", "brew": "craft", "forge": "craft", "cook": "craft", "weave": "craft",
         "fight": "attack", "engage": "attack", "battle": "attack", "hit": "attack",
+        
+        # IMPROVEMENT: New single-letter aliases
+        "q": "quests",
+        "r": "rest", 
+        "a": "attack",
+        "f": "forage",
+        "m": "map",
+        "t": "talk",
         
         # Special cases
         "heal": "use", "bandage": "use bandage"
@@ -6585,6 +9110,11 @@ def p16_ext_handle_command(cmd, args, game):
     # Apply synonym mapping FIRST
     synonyms = _p16_get_synonyms()
     
+    # IMPROVEMENT: Block diagonal movement and inform user
+    if cmd in ("ne", "nw", "se", "sw"):
+        game.say("No diagonal movement. Use: n/s/e/w")
+        return True
+    
     # Special case: "heal up" -> "use bandage"
     if cmd == "heal" and args and args[0] == "up":
         if "bandage" in game.player.inv or "bandages" in game.player.inv:
@@ -6671,10 +9201,1590 @@ ext_handle_command = p16_ext_handle_command
 
 
 # ===========================
+# PART 17: FINAL GAMEPLAY FEATURES
+# ===========================
+# Branching narratives, expanded bestiary, smart gathering, inventory UX, presets, polish
+
+P17_PREV_EXT = globals().get("ext_handle_command", None)
+
+def part17_post_init(game):
+    """Initialize Part 17 features"""
+    if not game or getattr(game, "_p17", None) is not None:
+        return
+    
+    game._p17 = {
+        # Story framework
+        "story_flags": {},
+        "current_scene": None,
+        "scene_history": [],
+        
+        # Verbosity settings
+        "verbosity": "normal",  # quiet, normal, verbose
+        
+        # Playstyle presets
+        "preset": None,  # Will be set on first use
+        "preset_config": {
+            "encounter_rate": 1.0,
+            "encounter_enabled": True,
+            "death_penalty": True,
+            "death_penalty_percent": 0,
+            "xp_multiplier": 1.0,
+            "quest_xp_multiplier": 1.0,
+            "combat_xp_multiplier": 1.0,
+            "drop_bonus": 0.0,
+            "craft_bonus": 0,
+            "encumbrance_enabled": False,
+            "tips_enabled": False,
+        },
+        
+        # Inventory categorization
+        "inv_sort": "type",  # alpha, type, newest
+        "inv_category_order": ["quest", "consumables", "items", "materials"],
+        
+        # Last biome for audio crossfade tracking
+        "last_biome": None,
+    }
+    
+    # Add branching story quests to _p6
+    if hasattr(game, "_p6"):
+        q = game._p6.setdefault("quests", {})
+        
+        # Echoes at the Lake - timed moral choice
+        q.setdefault("echoes_lake", {
+            "title": "Echoes at the Lake",
+            "state": "new",
+            "lore": "Strange echoes emanate from the Moonlit Lake. Something waits beneath.",
+            "need": {},
+            "reward": {},
+        })
+        
+        # The Hermit's Riddle - puzzle quest
+        q.setdefault("hermit_riddle", {
+            "title": "The Hermit's Riddle",
+            "state": "new",
+            "lore": "The Hermit speaks in riddles. Solve it to gain ancient wisdom.",
+            "need": {},
+            "reward": {},
+        })
+    
+    # Add new creatures to bestiary
+    if hasattr(game, "_p5"):
+        best = game._p5.setdefault("bestiary", {})
+        
+        best.setdefault("Mire Drake", {
+            "hp": (6, 10),
+            "traits": ["retaliation_thorns"],
+            "lore": "A scaled beast lurking in marshlands. Its hide bristles with venomous thorns.",
+            "drops": ["drake_scale", "marsh_reed"],
+        })
+        
+        best.setdefault("Thorn Sprite", {
+            "hp": (2, 4),
+            "traits": ["retaliation_thorns"],
+            "lore": "Tiny fey creature wreathed in living brambles. Striking it risks injury.",
+            "drops": ["thorn", "sprite_dust"],
+        })
+        
+        best.setdefault("Echo Bat", {
+            "hp": (3, 5),
+            "traits": ["flying"],
+            "lore": "A spectral bat whose wings beat in eerie silence. Hard to strike.",
+            "drops": ["bat_wing", "echo_stone"],
+        })
+        
+        best.setdefault("Glimmer Slug", {
+            "hp": (4, 6),
+            "traits": ["on_hit_slow"],
+            "lore": "A luminescent mollusk that secretes paralyzing mucus.",
+            "drops": ["slime", "glow_pearl"],
+        })
+        
+        # Mini-bosses
+        best.setdefault("Ancient Mire Drake", {
+            "hp": (15, 20),
+            "traits": ["retaliation_thorns", "boss"],
+            "lore": "The eldest of the marsh drakes. Its thorns drip with ancient poison.",
+            "drops": ["ancient_scale", "drake_fang"],
+            "is_boss": True,
+        })
+        
+        best.setdefault("Shadow Echo Bat", {
+            "hp": (12, 16),
+            "traits": ["flying", "boss"],
+            "lore": "A massive bat that seems to phase between worlds.",
+            "drops": ["shadow_wing", "void_crystal"],
+            "is_boss": True,
+        })
+
+# Scene management for branching narratives
+def begin_scene(game, scene_id: str, intro_text: str):
+    """Start a narrative scene"""
+    game._p17["current_scene"] = {
+        "id": scene_id,
+        "intro": intro_text,
+        "choices": [],
+    }
+    game.say(intro_text)
+
+def add_choice(game, option_text: str, flag_name: str, flag_value, outcome_text: str):
+    """Add a choice to the current scene"""
+    if not game._p17.get("current_scene"):
+        return
+    
+    scene = game._p17["current_scene"]
+    choice_num = len(scene["choices"]) + 1
+    scene["choices"].append({
+        "num": choice_num,
+        "text": option_text,
+        "flag": flag_name,
+        "value": flag_value,
+        "outcome": outcome_text,
+    })
+
+def show_choices(game):
+    """Display available choices"""
+    scene = game._p17.get("current_scene")
+    if not scene or not scene.get("choices"):
+        return
+    
+    game.say("\nChoose:")
+    for choice in scene["choices"]:
+        game.say(f"  {choice['num']}. {choice['text']}")
+    game.say("\nType: choose <number>")
+
+def choose(game, choice_num: int):
+    """Make a choice in the current scene"""
+    scene = game._p17.get("current_scene")
+    if not scene:
+        game.say("No active scene.")
+        return False
+    
+    choices = scene.get("choices", [])
+    for choice in choices:
+        if choice["num"] == choice_num:
+            # Set the story flag
+            game._p17["story_flags"][choice["flag"]] = choice["value"]
+            game.say(choice["outcome"])
+            
+            # Record scene history
+            game._p17["scene_history"].append({
+                "scene_id": scene["id"],
+                "choice": choice_num,
+                "flag": choice["flag"],
+                "value": choice["value"],
+            })
+            
+            return True
+    
+    game.say("Invalid choice.")
+    return False
+
+def end_scene(game):
+    """End the current scene"""
+    game._p17["current_scene"] = None
+
+# Location-weighted gathering
+BIOME_LOOT_TABLES = {
+    "grove": {
+        "herb": 0.4,
+        "fiber": 0.3,
+        "reed": 0.2,
+        "wood": 0.1,
+    },
+    "thicket": {
+        "thorn": 0.35,
+        "fiber": 0.35,
+        "herb": 0.2,
+        "berry": 0.1,
+    },
+    "mine": {
+        "ore": 0.5,
+        "coal": 0.3,
+        "crystal_shard": 0.15,
+        "iron_ore": 0.05,
+    },
+    "lake": {
+        "fish": 0.5,
+        "reed": 0.25,
+        "pearl": 0.15,
+        "water_lily": 0.1,
+    },
+    "marsh": {
+        "slime": 0.35,
+        "marsh_reed": 0.3,
+        "bog_moss": 0.25,
+        "drake_scale": 0.1,
+    },
+    "wilds": {
+        "hide": 0.3,
+        "wood": 0.3,
+        "fiber": 0.2,
+        "herb": 0.2,
+    },
+}
+
+def get_biome_type(room_id: str) -> str:
+    """Determine biome type from room ID"""
+    if "grove" in room_id:
+        return "grove"
+    elif "thicket" in room_id:
+        return "thicket"
+    elif "mine" in room_id:
+        return "mine"
+    elif "lake" in room_id or "depth" in room_id or "shrine" in room_id:
+        return "lake"
+    elif "marsh" in room_id or "swamp" in room_id:
+        return "marsh"
+    else:
+        return "wilds"
+
+def weighted_forage(game, biome: str):
+    """Perform biome-weighted foraging"""
+    import random
+    
+    loot_table = BIOME_LOOT_TABLES.get(biome, BIOME_LOOT_TABLES["wilds"])
+    
+    # Roll for item
+    roll = random.random()
+    cumulative = 0.0
+    
+    for item, weight in loot_table.items():
+        cumulative += weight
+        if roll <= cumulative:
+            # Found item
+            if hasattr(game, "_p3"):
+                game._p3["mats"][item] = game._p3["mats"].get(item, 0) + 1
+                
+                # Verbosity check
+                if game._p17.get("verbosity") != "quiet":
+                    game.say(f"You found: {item.replace('_', ' ').title()}")
+                return True
+    
+    return False
+
+# Enhanced bestiary command
+def _p17_bestiary_detail(game, creature_name: str):
+    """Show detailed bestiary entry"""
+    if not hasattr(game, "_p5"):
+        game.say("No bestiary available.")
+        return
+    
+    best = game._p5.get("bestiary", {})
+    
+    # Find matching creature (case-insensitive, partial match)
+    creature = None
+    for name, data in best.items():
+        if creature_name.lower() in name.lower():
+            creature = (name, data)
+            break
+    
+    if not creature:
+        game.say(f"No bestiary entry for '{creature_name}'.")
+        return
+    
+    name, data = creature
+    seen = game._p5.get("seen", set())
+    
+    if name not in seen:
+        game.say(f"{name}: Not yet encountered.")
+        return
+    
+    # Add rare indicator for bosses
+    boss_tag = " ⭐ [RARE]" if data.get("is_boss") else ""
+    game.say(f"\n=== {name}{boss_tag} ===")
+    game.say(data.get("lore", "A mysterious creature."))
+    
+    hp_range = data.get("hp", (1, 1))
+    game.say(f"\nHP: {hp_range[0]}-{hp_range[1]}")
+    
+    traits = data.get("traits", [])
+    if traits:
+        # Filter out 'boss' trait from display
+        display_traits = [t for t in traits if t != "boss"]
+        if display_traits:
+            game.say(f"Traits: {', '.join(display_traits)}")
+    
+    drops = data.get("drops", [])
+    if drops:
+        game.say(f"Known Drops: {', '.join([d.replace('_', ' ').title() for d in drops])}")
+    
+    if data.get("is_boss"):
+        game.say("\n⚠️  RARE SPAWN (Mini-Boss)")
+
+# Categorized inventory display
+def categorize_inventory(game):
+    """Organize inventory into categories"""
+    categories = {
+        "quest": [],
+        "consumables": [],
+        "items": [],
+        "materials": [],
+    }
+    
+    # Categorize items
+    for key, value in game.player.inv.items():
+        if isinstance(value, Item):
+            # Determine category
+            if "quest" in value.id.lower() or "key" in value.id.lower():
+                categories["quest"].append((key, value, 1))
+            elif value.usable or "potion" in value.id.lower() or "bandage" in value.id.lower():
+                categories["consumables"].append((key, value, 1))
+            else:
+                categories["items"].append((key, value, 1))
+        elif isinstance(value, int) and value > 0:
+            # It's a stacked material
+            categories["materials"].append((key, None, value))
+    
+    # Also add _p2 bandages
+    if hasattr(game, "_p2") and game._p2.get("bandages", 0) > 0:
+        categories["consumables"].append(("bandage", None, game._p2["bandages"]))
+    
+    # Add _p3 materials
+    if hasattr(game, "_p3"):
+        for mat, qty in game._p3.get("mats", {}).items():
+            if qty > 0:
+                # Check if already added
+                found = False
+                for key, item, count in categories["materials"]:
+                    if key == mat:
+                        found = True
+                        break
+                if not found:
+                    categories["materials"].append((mat, None, qty))
+    
+    return categories
+
+def display_categorized_inventory(game, quiet=False):
+    """Display inventory with categories and sorting"""
+    categories = categorize_inventory(game)
+    sort_mode = game._p17.get("inv_sort", "type")
+    
+    if not quiet:
+        game.say(f"\n=== Inventory === (Sorted by: {sort_mode})")
+    
+    # Count total items
+    total = sum(len(items) for items in categories.values())
+    if total == 0:
+        if not quiet:
+            game.say("(empty)")
+        return
+    
+    # Display by category
+    for category in game._p17.get("inv_category_order", ["quest", "consumables", "items", "materials"]):
+        items = categories.get(category, [])
+        if not items:
+            continue
+        
+        game.say(f"\n[{category.upper()}]")
+        
+        # Sort items within category
+        if sort_mode == "alpha":
+            items.sort(key=lambda x: x[0])
+        # type is already sorted by category
+        
+        for key, item, count in items:
+            if item:
+                display = item.name
+            else:
+                display = key.replace("_", " ").title()
+            
+            if count > 1:
+                game.say(f"  {display} × {count}")
+            else:
+                game.say(f"  {display}")
+
+# Playstyle presets
+PRESETS = {
+    "explorer": {
+        "name": "Explorer",
+        "desc": "Low combat, high quest rewards, helpful tips",
+        "encounter_rate": 0.5,
+        "encounter_enabled": True,
+        "death_penalty": False,
+        "xp_multiplier": 1.0,
+        "quest_xp_multiplier": 1.5,
+        "combat_xp_multiplier": 0.75,
+        "drop_bonus": 0.0,
+        "craft_bonus": 0,
+        "encumbrance_enabled": False,
+        "tips_enabled": True,
+    },
+    "hunter": {
+        "name": "Hunter",
+        "desc": "High combat, better drops, standard difficulty",
+        "encounter_rate": 1.5,
+        "encounter_enabled": True,
+        "death_penalty": True,
+        "death_penalty_percent": 0,
+        "xp_multiplier": 1.0,
+        "quest_xp_multiplier": 1.0,
+        "combat_xp_multiplier": 1.0,
+        "drop_bonus": 0.25,
+        "craft_bonus": 0,
+        "encumbrance_enabled": False,
+        "tips_enabled": False,
+    },
+    "cozy": {
+        "name": "Cozy",
+        "desc": "Peaceful crafting focus, no combat (unless 'hunt'), extra yields",
+        "encounter_rate": 0.0,
+        "encounter_enabled": False,
+        "death_penalty": False,
+        "xp_multiplier": 1.0,
+        "quest_xp_multiplier": 1.0,
+        "combat_xp_multiplier": 1.0,
+        "drop_bonus": 0.0,
+        "craft_bonus": 1,
+        "encumbrance_enabled": False,
+        "tips_enabled": False,
+    },
+    "hardcore": {
+        "name": "Hardcore",
+        "desc": "Standard encounters, death penalty (10% gold), encumbrance system",
+        "encounter_rate": 1.0,
+        "encounter_enabled": True,
+        "death_penalty": True,
+        "death_penalty_percent": 10,
+        "xp_multiplier": 1.0,
+        "quest_xp_multiplier": 1.0,
+        "combat_xp_multiplier": 1.0,
+        "drop_bonus": 0.0,
+        "craft_bonus": 0,
+        "encumbrance_enabled": True,
+        "tips_enabled": False,
+    },
+}
+
+def apply_preset(game, preset_name: str):
+    """Apply a playstyle preset"""
+    if preset_name not in PRESETS:
+        return False
+    
+    preset = PRESETS[preset_name]
+    game._p17["preset"] = preset_name
+    game._p17["preset_config"].update(preset)
+    
+    # Save to localStorage
+    try:
+        localStorage.setItem("wilds_preset", preset_name)
+    except:
+        pass
+    
+    return True
+
+# Commands
+def _p17_cmd_mode(game, args):
+    """Change playstyle preset"""
+    if not args:
+        # Show available presets
+        game.say("\n=== Playstyle Presets ===\n")
+        for key, preset in PRESETS.items():
+            indicator = " (active)" if game._p17.get("preset") == key else ""
+            game.say(f"{preset['name']}{indicator}")
+            game.say(f"  {preset['desc']}\n")
+        game.say("Type: mode <preset> (e.g., 'mode explorer')")
+        return True
+    
+    preset_name = args[0].lower()
+    if apply_preset(game, preset_name):
+        game.say(f"✓ Switched to {PRESETS[preset_name]['name']} mode")
+        notify("success", f"Mode: {PRESETS[preset_name]['name']}", 3000)
+        return True
+    else:
+        game.say(f"Unknown preset: {preset_name}")
+        return True
+
+def _p17_cmd_settings(game, args):
+    """Show current settings and preset"""
+    preset = game._p17.get("preset")
+    config = game._p17.get("preset_config", {})
+    
+    game.say("\n=== Current Settings ===\n")
+    
+    if preset:
+        game.say(f"Preset: {PRESETS[preset]['name']}")
+    else:
+        game.say("Preset: Default")
+    
+    game.say(f"\nEncounter Rate: {config.get('encounter_rate', 1.0)}x")
+    game.say(f"Encounters Enabled: {'Yes' if config.get('encounter_enabled', True) else 'No (hunt only)'}")
+    game.say(f"Death Penalty: {'Yes' if config.get('death_penalty', False) else 'No'}")
+    if config.get('death_penalty'):
+        penalty = config.get('death_penalty_percent', 0)
+        if penalty > 0:
+            game.say(f"  Gold Loss on Death: {penalty}%")
+    
+    game.say(f"\nQuest XP Bonus: {int((config.get('quest_xp_multiplier', 1.0) - 1.0) * 100)}%")
+    game.say(f"Combat XP Bonus: {int((config.get('combat_xp_multiplier', 1.0) - 1.0) * 100)}%")
+    game.say(f"Drop Chance Bonus: +{int(config.get('drop_bonus', 0.0) * 100)}%")
+    game.say(f"Crafting Yield Bonus: +{config.get('craft_bonus', 0)}")
+    
+    game.say(f"\nEncumbrance: {'Enabled' if config.get('encumbrance_enabled') else 'Disabled'}")
+    game.say(f"Helpful Tips: {'Enabled' if config.get('tips_enabled') else 'Disabled'}")
+    
+    game.say(f"\nVerbosity: {game._p17.get('verbosity', 'normal').title()}")
+    game.say(f"Inventory Sort: {game._p17.get('inv_sort', 'type').title()}")
+    
+    return True
+
+def _p17_cmd_verbosity(game, args):
+    """Set verbosity level"""
+    if not args:
+        current = game._p17.get("verbosity", "normal")
+        game.say(f"Verbosity: {current}")
+        game.say("\nLevels:")
+        game.say("  quiet  - Only toasts for routine actions")
+        game.say("  normal - Standard output (default)")
+        game.say("  verbose - Detailed descriptions and hints")
+        game.say("\nType: verbosity <level>")
+        return True
+    
+    level = args[0].lower()
+    if level in ("quiet", "normal", "verbose"):
+        game._p17["verbosity"] = level
+        game.say(f"✓ Verbosity set to: {level}")
+        try:
+            localStorage.setItem("wilds_verbosity", level)
+        except:
+            pass
+        return True
+    else:
+        game.say("Invalid level. Use: quiet, normal, or verbose")
+        return True
+
+def _p17_cmd_sense(game, args):
+    """Show biome-specific gathering hints"""
+    # IMPROVEMENT: Check cooldown with clearer messaging
+    if hasattr(game, "_p3") and game._p3.get("gather_cooldown", 0) > 0:
+        game.say(f"Wait {game._p3['gather_cooldown']} more actions (any command except gather/fish/mine/harvest).")
+        # IMPROVEMENT: Show one-time cooldown tip using localStorage
+        try:
+            from js import localStorage, window
+            if not localStorage.getItem("wilds_cooldown_tip_shown"):
+                # Check hints toggle
+                hints_on = localStorage.getItem("wilds_hints")
+                if hints_on is None or hints_on == "true":
+                    show_toast("💡 Tip: Cooldowns reset when you do other actions like move, talk, or craft.", "info", 5000)
+                localStorage.setItem("wilds_cooldown_tip_shown", "true")
+        except:
+            pass
+        return True
+    
+    biome = get_biome_type(game.cur_room)
+    loot_table = BIOME_LOOT_TABLES.get(biome, {})
+    
+    # Set cooldown (same as gathering)
+    if hasattr(game, "_p3"):
+        game._p3["gather_cooldown"] = 3
+    
+    # Determine hint based on biome
+    hints = {
+        "grove": "You sense medicinal herbs and useful fibers growing here.",
+        "thicket": "Thorny brambles and tough fibers dominate this area.",
+        "mine": "The earth is rich with ore, coal, and glittering crystals.",
+        "lake": "Fish dart through the water. Reeds and pearls hide in the shallows.",
+        "marsh": "Slime-covered reeds and drake scales can be found in the murk.",
+        "wilds": "Animal hides, wood, and wild herbs are plentiful here.",
+    }
+    
+    hint = hints.get(biome, "You sense nothing particular about this area.")
+    
+    game.say(hint)
+    notify("info", f"Sense: {biome.title()}", 2500)
+    
+    # Show top items
+    if loot_table:
+        top_items = sorted(loot_table.items(), key=lambda x: x[1], reverse=True)[:2]
+        game.say(f"Most common: {', '.join([item.replace('_', ' ').title() for item, _ in top_items])}")
+    
+    return True
+
+def _p17_cmd_sort(game, args):
+    """Change inventory sort mode"""
+    if not args:
+        game.say(f"Current sort: {game._p17.get('inv_sort', 'type')}")
+        game.say("\nOptions: alpha, type, newest")
+        game.say("Type: sort <mode>")
+        return True
+    
+    mode = args[0].lower()
+    if mode in ("alpha", "type", "newest"):
+        game._p17["inv_sort"] = mode
+        verbosity = game._p17.get("verbosity", "normal")
+        
+        # Quiet notification for sort change
+        if verbosity != "quiet":
+            game.say(f"✓ Inventory sorted by: {mode}")
+        else:
+            game.notify("info", f"Sorted by: {mode}")
+        
+        # Quietly update the inventory panel without console spam
+        game._update_inv_panel()
+        return True
+    else:
+        game.say("Invalid sort mode. Use: alpha, type, or newest")
+        return True
+
+def _p17_cmd_choose(game, args):
+    """Make a choice in a branching narrative"""
+    if not args:
+        game.say("Choose which option? Type: choose <number>")
+        return True
+    
+    try:
+        choice_num = int(args[0])
+        if choose(game, choice_num):
+            end_scene(game)
+            return True
+    except ValueError:
+        pass
+    
+    game.say("Invalid choice number.")
+    return True
+
+def _p17_cmd_lore(game, args):
+    """Show lore for story flags"""
+    if not args:
+        flags = game._p17.get("story_flags", {})
+        if not flags:
+            game.say("No story flags discovered yet.")
+            return True
+        
+        game.say("\n=== Story Flags ===")
+        for flag, value in sorted(flags.items()):
+            game.say(f"  {flag}: {value}")
+        return True
+    
+    flag_name = "_".join(args).lower()
+    flags = game._p17.get("story_flags", {})
+    
+    if flag_name in flags:
+        game.say(f"{flag_name}: {flags[flag_name]}")
+    else:
+        game.say(f"No flag named '{flag_name}' found.")
+    
+    return True
+
+# Echoes at the Lake quest
+def _p17_start_echoes_quest(game):
+    """Begin the Echoes at the Lake questline"""
+    if game.cur_room not in ("wilds_lake", "lake_depths"):
+        game.say("This quest can only be started at the Moonlit Lake.")
+        return False
+    
+    begin_scene(game, "echoes_lake", 
+        "\nA ghostly figure rises from the lake's surface.\n" +
+        "\"Traveler,\" it whispers, \"I am bound here by an ancient wrong.\n" +
+        "You can free me... but there is a price.\"")
+    
+    add_choice(game, "Free the spirit (sacrifice 20 gold)",
+        "echoes_choice", "freed",
+        "\nYou offer gold to the spirits. The ghost smiles and fades.\n" +
+        "\"Thank you, kind soul.\" (+5 XP, +Spirit's Blessing)")
+    
+    add_choice(game, "Bind the spirit to serve you",
+        "echoes_choice", "bound",
+        "\nYou speak words of binding. The ghost wails but obeys.\n" +
+        "\"You will regret this, mortal!\" (Gain: Bound Spirit, -2 XP)")
+    
+    add_choice(game, "Leave it be",
+        "echoes_choice", "ignored",
+        "\nYou step back. The ghost sinks beneath the waters.\n" +
+        "\"Perhaps it is for the best...\" (No reward)")
+    
+    show_choices(game)
+    
+    # Update quest state
+    if hasattr(game, "_p6"):
+        game._p6["quests"]["echoes_lake"]["state"] = "active"
+    
+    return True
+
+# Hermit's Riddle quest
+def _p17_start_hermit_riddle(game):
+    """Begin the Hermit's Riddle questline"""
+    if game.cur_room != "wilds_hut":
+        game.say("The Hermit is only at their hut.")
+        return False
+    
+    game.say("\nThe Hermit grins, eyes twinkling.")
+    game.say("\"Answer me this, traveler:\"")
+    game.say("\"I have cities but no houses, forests but no trees,\"")
+    game.say("\"Water but no fish. What am I?\"")
+    game.say("\nType: answer <your answer>")
+    
+    # Mark quest as active
+    if hasattr(game, "_p6"):
+        game._p6["quests"]["hermit_riddle"]["state"] = "active"
+    
+    return True
+
+def _p17_cmd_answer(game, args):
+    """Answer the Hermit's riddle"""
+    if not hasattr(game, "_p6"):
+        return False
+    
+    quest_state = game._p6["quests"].get("hermit_riddle", {}).get("state")
+    if quest_state != "active":
+        game.say("No riddle to answer.")
+        return True
+    
+    if not args:
+        game.say("Answer what? Type: answer <your answer>")
+        return True
+    
+    answer = " ".join(args).lower().strip()
+    
+    # Accept multiple phrasings
+    correct_answers = ["map", "a map", "the map", "maps", "chart", "atlas"]
+    
+    if answer in correct_answers:
+        game.say("\nThe Hermit claps with delight!")
+        game.say("\"Correct! A map! Here, take this wisdom.\"")
+        game.say("(+3 XP, +Ancient Map)")
+        
+        # Give rewards
+        if hasattr(game, "_p2"):
+            game._p2["xp"] = game._p2.get("xp", 0) + 3
+            notify("xp", "+3 XP", 2500)
+        
+        if hasattr(game, "_p3"):
+            game._p3["mats"]["ancient_map"] = game._p3["mats"].get("ancient_map", 0) + 1
+        
+        # Complete quest
+        game._p6["quests"]["hermit_riddle"]["state"] = "turned_in"
+        game._p17["story_flags"]["hermit_riddle_solved"] = True
+        
+        return True
+    else:
+        game.say(f"\nThe Hermit shakes their head. \"'{answer}' is not the answer.\"")
+        game.say("Think carefully...")
+        return True
+
+# Enhanced help command with new sections
+def _p17_update_help(game):
+    """Add Part 17 commands to help"""
+    pass  # Help is managed in the main help() method
+
+# Extension command handler
+def p17_ext_handle_command(cmd, args, game):
+    prev = P17_PREV_EXT if P17_PREV_EXT is not p17_ext_handle_command else None
+    
+    # Initialize Part 17 if needed
+    if not hasattr(game, "_p17"):
+        part17_post_init(game)
+    
+    # Tutorial commands
+    if cmd == "tutorial" and args:
+        if args[0] in ("restart", "reset", "start"):
+            try:
+                localStorage.removeItem("wilds_tutorial_done")
+                tutorial.start_tutorial(game)
+                notify("success", "Tutorial restarted! Follow the ghost commands.", 3000)
+            except:
+                game.say("Tutorial restart failed. Try refreshing the page.")
+            return True
+        elif args[0] == "skip":
+            try:
+                tutorial.skip_tutorial()
+                game.say("Tutorial skipped.")
+            except:
+                pass
+            return True
+    
+    # IMPROVEMENT: "hide hints" command
+    if cmd == "hide" and args and args[0] == "hints":
+        window.toggleHints() if window.areHintsEnabled() else None
+        game.say("Hints disabled. (Toggle with 'hints on' or footer button)")
+        return True
+    
+    # IMPROVEMENT: "show hints" command
+    if cmd == "show" and args and args[0] == "hints":
+        window.toggleHints() if not window.areHintsEnabled() else None
+        game.say("Hints enabled. (Toggle with 'hints off' or footer button)")
+        return True
+    
+    # Hints toggle command
+    if cmd == "hints":
+        if args and args[0] in ("off", "disable", "no", "hide"):
+            window.toggleHints() if window.areHintsEnabled() else None
+            game.say("Hints disabled. (Toggle with 'hints on' or footer button)")
+            return True
+        elif args and args[0] in ("on", "enable", "yes", "show"):
+            window.toggleHints() if not window.areHintsEnabled() else None
+            game.say("Hints enabled. (Toggle with 'hints off' or footer button)")
+            return True
+        else:
+            status = "ON" if window.areHintsEnabled() else "OFF"
+            game.say(f"Hints are currently {status}.")
+            game.say("Use 'hints on' or 'hints off' to toggle.")
+            return True
+    
+    # Apply preset modifiers if needed
+    # This is checked in relevant systems (combat spawn, rewards, etc.)
+    
+    # Handle dive -> down alias at water locations
+    if cmd == "dive":
+        biome = get_biome_type(game.cur_room)
+        if biome == "lake":
+            cmd = "down"
+            notify("info", "Using 'down' to dive", 2000)
+        else:
+            game.say("You can only dive at water locations. Try 'down' instead.")
+            return True
+    
+    # Part 17 commands
+    if cmd == "mode":
+        return _p17_cmd_mode(game, args)
+    elif cmd == "settings":
+        return _p17_cmd_settings(game, args)
+    elif cmd == "verbosity":
+        return _p17_cmd_verbosity(game, args)
+    elif cmd == "sense":
+        return _p17_cmd_sense(game, args)
+    elif cmd == "sort":
+        return _p17_cmd_sort(game, args)
+    elif cmd == "choose":
+        return _p17_cmd_choose(game, args)
+    elif cmd == "lore" and args and "flag" in args[0]:
+        return _p17_cmd_lore(game, args)
+    elif cmd == "answer":
+        return _p17_cmd_answer(game, args)
+    elif cmd == "bestiary" and args:
+        _p17_bestiary_detail(game, " ".join(args))
+        return True
+    elif cmd == "explore" and args and args[0].lower() in ("lake", "water"):
+        # Trigger Echoes at the Lake
+        if game.cur_room == "wilds_lake":
+            if _p17_start_echoes_quest(game):
+                return True
+        else:
+            game.say("There's nothing special to explore here.")
+        return True
+    elif cmd == "inv" or cmd == "inventory":
+        # Use categorized display
+        display_categorized_inventory(game)
+        game._update_inv_panel()
+        return True
+    
+    # Call previous handler
+    if prev and prev(cmd, args, game):
+        return True
+    
+    return False
+
+ext_handle_command = p17_ext_handle_command
+
+
+# ===========================
+# PART 18: POLISH FEATURES
+# ===========================
+# XP bar, seeds, leaderboards, vendor, affixes, set bonuses, UI verbosity
+
+P18_PREV_EXT = globals().get("ext_handle_command", None)
+
+def part18_post_init(game):
+    """Initialize Part 18 - polish features"""
+    if not game or getattr(game, "_p18", None) is not None:
+        return
+    
+    game._p18 = {
+        "current_seed": None,
+        "seed_mode": "random",  # random, daily, weekly, custom
+        "run_start_time": time.time(),
+        "run_stats": {
+            "kills": 0,
+            "xp_earned": 0,
+            "items_collected": 0,
+        },
+        "ui_verbosity": 3,  # 1=minimal, 2=compact, 3=normal, 4=detailed, 5=maximum
+        "set_bonuses": {},  # Track active set bonuses
+        "leaderboard_completed": False,
+    }
+    
+    # Check for URL seed
+    try:
+        url_seed = window.getURLSeed()
+        if url_seed:
+            game._p18["current_seed"] = url_seed
+            game._p18["seed_mode"] = "custom"
+            # Seed the RNG
+            core.SeededRNG(url_seed)
+            window.currentGameSeed = url_seed
+            window.updateSeedDisplay(url_seed)
+            notify('info', f'Loaded seed: {url_seed}', 3000)
+    except:
+        pass
+
+# Leaderboard system
+def save_leaderboard_entry(game, seed: str):
+    """Save a leaderboard entry for completed run"""
+    if not game._p18.get("leaderboard_completed"):
+        return
+    
+    try:
+        # Calculate run time
+        run_time = int(time.time() - game._p18.get("run_start_time", time.time()))
+        
+        # Get current stats
+        xp = game._p2.get("xp", 0) if hasattr(game, "_p2") else 0
+        level = game._p11.get("level", 1) if hasattr(game, "_p11") else 1
+        
+        # Create entry
+        entry = {
+            "seed": seed,
+            "time": run_time,
+            "xp": xp,
+            "level": level,
+            "date": datetime.now(timezone.utc).isoformat(),
+        }
+        
+        # Load existing leaderboards
+        lb_json = localStorage.getItem("wilds_leaderboards") or "{}"
+        leaderboards = JSON.parse(lb_json).to_py() if lb_json != "{}" else {}
+        
+        # Add to seed-specific leaderboard
+        seed_key = seed or "random"
+        if seed_key not in leaderboards:
+            leaderboards[seed_key] = []
+        
+        leaderboards[seed_key].append(entry)
+        
+        # Keep only top 5 per seed, sorted by XP descending
+        leaderboards[seed_key] = sorted(
+            leaderboards[seed_key], 
+            key=lambda x: x.get("xp", 0), 
+            reverse=True
+        )[:5]
+        
+        # Save back
+        localStorage.setItem("wilds_leaderboards", JSON.stringify(leaderboards))
+        
+    except Exception as e:
+        console.log(f"Leaderboard save error: {e}")
+
+def show_leaderboards(game):
+    """Display leaderboards for current seed"""
+    try:
+        seed = game._p18.get("current_seed") or "random"
+        
+        lb_json = localStorage.getItem("wilds_leaderboards") or "{}"
+        leaderboards = JSON.parse(lb_json).to_py() if lb_json != "{}" else {}
+        
+        seed_key = seed if seed else "random"
+        entries = leaderboards.get(seed_key, [])
+        
+        game.say(f"\n=== Leaderboards (Seed: {seed_key}) ===")
+        
+        if not entries:
+            game.say("No entries yet for this seed.")
+        else:
+            for i, entry in enumerate(entries, 1):
+                mins = entry.get("time", 0) // 60
+                secs = entry.get("time", 0) % 60
+                game.say(f"{i}. Level {entry.get('level', 1)} | {entry.get('xp', 0)} XP | {mins}m {secs}s")
+        
+        # Update panel
+        html = f"<div style='font-size:12px;'><b>Seed: {seed_key}</b><br><br>"
+        if entries:
+            for i, entry in enumerate(entries, 1):
+                mins = entry.get("time", 0) // 60
+                secs = entry.get("time", 0) % 60
+                html += f"{i}. Lv{entry.get('level', 1)} | {entry.get('xp', 0)}XP | {mins}m{secs}s<br>"
+        else:
+            html += "No entries yet."
+        html += "</div>"
+        update_panel("leaderboards", html)
+        
+    except Exception as e:
+        game.say(f"Error loading leaderboards: {e}")
+
+# Vendor system
+def show_vendor(game):
+    """Display faction vendor shop"""
+    # Get current faction (default to Wilds Guardians for now)
+    faction = faction_manager.get_faction("guardians")
+    
+    if not faction:
+        game.say("No vendor available here.")
+        return
+    
+    if not faction.can_access_vendor():
+        tier = faction.get_reputation_tier()
+        needed = -25 - faction.reputation
+        game.say(f"Vendor access denied. Reputation: {tier} ({faction.reputation})")
+        game.say(f"Need {needed} more reputation to access vendor (Neutral required).")
+        return
+    
+    # Show vendor
+    game.say(f"\n=== {faction.name} Vendor ===")
+    game.say(f"Reputation: {faction.get_reputation_tier()} ({faction.reputation}/100)")
+    
+    discount = faction.get_discount("")
+    if discount > 0:
+        game.say(f"Your discount: {int(discount * 100)}%")
+    
+    game.say("\nAvailable items:")
+    
+    html = f"<div style='font-size:12px;'><b>{faction.name} Shop</b><br>"
+    html += f"Rep: {faction.get_reputation_tier()}<br><br>"
+    
+    for item in faction.shop_inventory:
+        item_id = item["id"]
+        name = item["name"]
+        base_price = item["price"]
+        
+        # Apply discount
+        discount = faction.get_discount(item_id)
+        final_price = int(base_price * (1 - discount))
+        
+        price_str = f"{final_price}g"
+        if discount > 0:
+            price_str += f" (was {base_price}g)"
+        
+        game.say(f"  {name} - {price_str}", clickable=[f"buy {item_id}"])
+        html += f"<span class='clickable' data-cmd='buy {item_id}'>{name}</span> - {price_str}<br>"
+    
+    html += "<br><small>Use 'buy &lt;item&gt;' or 'sell &lt;item&gt;'</small></div>"
+    update_panel("vendor", html)
+
+def buy_item(game, args):
+    """Purchase item from vendor"""
+    if not args:
+        game.say("Usage: buy <item>")
+        return
+    
+    item_id = "_".join(args).lower()
+    faction = faction_manager.get_faction("guardians")
+    
+    if not faction or not faction.can_access_vendor():
+        game.say("Vendor not accessible.")
+        return
+    
+    # Find item
+    item_data = None
+    for item in faction.shop_inventory:
+        if item["id"] == item_id or item["name"].lower().replace(" ", "_") == item_id:
+            item_data = item
+            break
+    
+    if not item_data:
+        game.say(f"Item '{item_id}' not available.")
+        return
+    
+    # Calculate price with discount
+    discount = faction.get_discount(item_data["id"])
+    final_price = int(item_data["price"] * (1 - discount))
+    
+    # Check gold
+    gold = game._p13.get("gold", 0) if hasattr(game, "_p13") else 0
+    
+    if gold < final_price:
+        game.say(f"Not enough gold. Need {final_price}g, have {gold}g.")
+        return
+    
+    # Purchase
+    game._p13["gold"] -= final_price
+    
+    # Add item to inventory
+    if item_data["type"] == "material":
+        if hasattr(game, "_p3"):
+            game._p3["mats"][item_data["id"]] = game._p3["mats"].get(item_data["id"], 0) + 1
+    else:
+        item = Item(item_data["id"], item_data["name"], f"Purchased from vendor", True)
+        game.player.add_item(item)
+    
+    game.say(f"Purchased {item_data['name']} for {final_price}g.")
+    notify('success', f"Bought: {item_data['name']}", 2000)
+    
+    game._update_inv_panel()
+
+def sell_item(game, args):
+    """Sell item to vendor"""
+    if not args:
+        game.say("Usage: sell <item>")
+        return
+    
+    item_name = " ".join(args).lower()
+    
+    # Check materials first
+    if hasattr(game, "_p3"):
+        for mat, qty in game._p3["mats"].items():
+            if mat.lower() == item_name or mat.lower().replace("_", " ") == item_name:
+                if qty > 0:
+                    # Sell for 50% of base value (estimate 10g per material)
+                    sell_price = 5
+                    game._p3["mats"][mat] -= 1
+                    if hasattr(game, "_p13"):
+                        game._p13["gold"] = game._p13.get("gold", 0) + sell_price
+                    game.say(f"Sold {mat.replace('_', ' ').title()} for {sell_price}g.")
+                    notify('success', f"+{sell_price}g", 2000)
+                    game._update_inv_panel()
+                    return
+    
+    # Check inventory items
+    for key, item in game.player.inv.items():
+        if isinstance(item, Item):
+            if item.name.lower() == item_name or item.id.lower() == item_name:
+                sell_price = 10  # Base sell price
+                game.player.remove_item(key)
+                if hasattr(game, "_p13"):
+                    game._p13["gold"] = game._p13.get("gold", 0) + sell_price
+                game.say(f"Sold {item.name} for {sell_price}g.")
+                notify('success', f"+{sell_price}g", 2000)
+                game._update_inv_panel()
+                return
+    
+    game.say(f"Don't have '{item_name}' to sell.")
+
+# Affix and set bonus system
+def apply_affix_to_item(item):
+    """Apply affix with 25% chance"""
+    if random.random() < 0.25:  # 25% chance
+        affix = core.roll_affix()
+        if affix:
+            item.affix = affix
+    
+    # Also roll rarity
+    item.rarity = core.roll_rarity()
+    
+    return item
+
+def check_set_bonuses(game):
+    """Check and apply set bonuses"""
+    if not hasattr(game, "_p18"):
+        return
+    
+    set_counts = {}
+    
+    # Count items by set
+    for item in game.player.inv.values():
+        if isinstance(item, Item) and hasattr(item, 'set_name') and item.set_name:
+            set_counts[item.set_name] = set_counts.get(item.set_name, 0) + 1
+    
+    # Apply bonuses for sets with 2+ items
+    active_bonuses = {}
+    for set_name, count in set_counts.items():
+        if count >= 2:
+            if set_name == "Sanctum Set":
+                active_bonuses["Sanctum Set"] = "+1 damage"
+                # Could apply actual bonus here
+            elif set_name == "Wilds Set":
+                active_bonuses["Wilds Set"] = "+1 inventory slot"
+    
+    game._p18["set_bonuses"] = active_bonuses
+    return active_bonuses
+
+# UI verbosity system
+def set_ui_verbosity(game, level: int):
+    """Set UI verbosity level (1-5)"""
+    level = max(1, min(5, level))
+    game._p18["ui_verbosity"] = level
+    
+    descriptions = {
+        1: "Minimal - Essential info only",
+        2: "Compact - Brief messages",
+        3: "Normal - Balanced detail",
+        4: "Detailed - More context",
+        5: "Maximum - All information"
+    }
+    
+    game.say(f"UI Verbosity set to {level}: {descriptions.get(level, 'Normal')}")
+    notify('info', f"Verbosity: {level}", 2000)
+
+def should_show_verbose(game, min_level: int = 3) -> bool:
+    """Check if current verbosity allows showing message"""
+    if not hasattr(game, "_p18"):
+        return True
+    return game._p18.get("ui_verbosity", 3) >= min_level
+
+# Command handlers
+def _p18_cmd_mode(game, args):
+    """Handle seed mode commands: mode daily, mode weekly"""
+    if not args:
+        game.say("Usage: mode daily | mode weekly")
+        return
+    
+    mode = args[0].lower()
+    
+    if mode == "daily":
+        seed = core.get_daily_seed()
+        game._p18["current_seed"] = seed
+        game._p18["seed_mode"] = "daily"
+        game._p18["run_start_time"] = time.time()
+        window.currentGameSeed = seed
+        window.updateSeedDisplay(seed)
+        game.say(f"Switched to Daily Challenge mode")
+        game.say(f"Seed: {seed}")
+        notify('info', f'Daily seed: {seed}', 3000)
+        return True
+        
+    elif mode == "weekly":
+        seed = core.get_weekly_seed()
+        game._p18["current_seed"] = seed
+        game._p18["seed_mode"] = "weekly"
+        game._p18["run_start_time"] = time.time()
+        window.currentGameSeed = seed
+        window.updateSeedDisplay(seed)
+        game.say(f"Switched to Weekly Challenge mode")
+        game.say(f"Seed: {seed}")
+        notify('info', f'Weekly seed: {seed}', 3000)
+        return True
+    
+    else:
+        game.say(f"Unknown mode: {mode}")
+        return False
+
+def _p18_cmd_ui(game, args):
+    """Handle UI verbosity command"""
+    if not args:
+        current = game._p18.get("ui_verbosity", 3)
+        game.say(f"Current UI verbosity: {current}/5")
+        game.say("Usage: ui <1-5>")
+        return True
+    
+    try:
+        level = int(args[0])
+        set_ui_verbosity(game, level)
+        return True
+    except:
+        game.say("Invalid level. Use: ui <1-5>")
+        return False
+
+def _p18_cmd_copyseed(game):
+    """Copy current seed URL to clipboard"""
+    try:
+        window.copySeedLink()
+        game.say("Seed link copied to clipboard!")
+    except Exception as e:
+        game.say(f"Failed to copy: {e}")
+
+# Update XP bar after XP gains
+def update_xp_display(game):
+    """Update XP bar with current progress"""
+    if not hasattr(game, "_p2"):
+        return
+    
+    xp = game._p2.get("xp", 0)
+    level = game._p11.get("level", 1) if hasattr(game, "_p11") else 1
+    
+    # Find next threshold
+    next_threshold = 100
+    for threshold_xp, lv, _, _ in LEVEL_THRESHOLDS:
+        if lv == level + 1:
+            next_threshold = threshold_xp
+            break
+    
+    # Update UI
+    try:
+        ui.update_xp_bar(xp, next_threshold)
+    except:
+        pass
+
+def p18_ext_handle_command(cmd, args, game):
+    prev = P18_PREV_EXT if P18_PREV_EXT is not p18_ext_handle_command else None
+    
+    if cmd == "mode" and args:
+        if args[0] in ("daily", "weekly"):
+            return _p18_cmd_mode(game, args)
+    
+    if cmd == "leaderboards":
+        show_leaderboards(game)
+        return True
+    
+    if cmd == "vendor":
+        show_vendor(game)
+        return True
+    
+    if cmd == "buy":
+        buy_item(game, args)
+        return True
+    
+    if cmd == "sell":
+        sell_item(game, args)
+        return True
+    
+    if cmd == "ui":
+        return _p18_cmd_ui(game, args)
+    
+    if cmd == "copyseed":
+        _p18_cmd_copyseed(game)
+        return True
+    
+    # After any command that awards XP, update display
+    result = prev(cmd, args, game) if prev else False
+    
+    # Update XP bar after commands that might change XP
+    if cmd in ("attack", "forage", "fish", "mine", "turnin"):
+        update_xp_display(game)
+    
+    return result
+
+ext_handle_command = p18_ext_handle_command
+
+
+# ===========================
+# PART 19: NPC PERSONALITY SYSTEM
+# ===========================
+# Enhanced NPCs with unique speech patterns, emotions, quirks, and depth
+
+P19_PREV_EXT = globals().get("ext_handle_command", None)
+
+# NPC Personality Profiles
+NPC_PERSONALITIES = {
+    "caretaker": {
+        "name": "The Caretaker",
+        "quirk": "speaks_in_metaphors",
+        "mood_states": ["contemplative", "worried", "grateful", "nostalgic"],
+        "speech_pattern": "poetic_formal",
+        "catchphrases": [
+            "*adjusts an old lantern thoughtfully*",
+            "*gazes toward the forest with ancient eyes*",
+            "*traces a finger along worn stone*"
+        ],
+        "personality_traits": [
+            "An ancient soul who has tended the Sanctum for countless seasons",
+            "Speaks in riddles and metaphors, rarely giving straight answers",
+            "Has a deep connection to the Wilds, treating them almost like old friends",
+            "Hums old melodies when nervous"
+        ],
+        "varied_greetings": [
+            '"Ah, the Wilds send another seeker to my threshold..."',
+            '"The candles flicker at your approach. Welcome, traveler."',
+            '"These old stones remember many footsteps. Yours echo differently."',
+            '"*looks up from tending a small flame* The hour brings you here again."'
+        ],
+        "random_observations": [
+            '"The shadows grow longer each day. Or perhaps it is I who notice more."',
+            '"Sometimes I hear the forest whispering. Other times, it screams."',
+            '"This lantern has burned since before your grandparents drew breath."',
+            '"The Wilds were once gardens. Now they are... wild."'
+        ]
+    },
+    "hermit": {
+        "name": "The Hermit",
+        "quirk": "mutters_to_plants",
+        "mood_states": ["grumpy", "focused", "surprisingly_warm", "distracted"],
+        "speech_pattern": "terse_pragmatic",
+        "catchphrases": [
+            "*mutters something to a hanging bundle of herbs*",
+            "*doesn't look up from grinding mushrooms*",
+            "*waves dismissively at nothing in particular*"
+        ],
+        "personality_traits": [
+            "Left civilization seeking silence, found purpose in healing",
+            "Talks to plants more than people - claims they're better listeners",
+            "Gruff exterior hides genuine care for those in need",
+            "Has a habit of finishing other people's sentences incorrectly"
+        ],
+        "varied_greetings": [
+            '"*grunt* People. Always needing something."',
+            '"The mushrooms don\'t interrupt me. Why do you?"',
+            '"*still grinding herbs* State your business or don\'t."',
+            '"If you\'re here for small talk, the door\'s behind you."'
+        ],
+        "random_observations": [
+            '"Foxglove blooms early this year. Bad omen, or just warm weather? *shrugs*"',
+            '"These herbs understand me. Unlike most folk."',
+            '"Civilization\'s overrated. Out here, at least the dangers are honest."',
+            '"*to a plant* See? THIS is why I prefer you."'
+        ]
+    },
+    "trader": {
+        "name": "The Trader",
+        "quirk": "haggles_everything",
+        "mood_states": ["cheerful", "scheming", "impressed", "disappointed"],
+        "speech_pattern": "folksy_merchant",
+        "catchphrases": [
+            "*rubs hands together expectantly*",
+            "*weighs something thoughtfully on palm*",
+            "*winks knowingly*"
+        ],
+        "personality_traits": [
+            "Treats every conversation like a negotiation",
+            "Has a story (probably exaggerated) for every item",
+            "Genuinely loves the art of the deal more than profit",
+            "Can't resist 'one last thing' before you leave"
+        ],
+        "varied_greetings": [
+            '"Well, WELL! My favorite customer returns!"',
+            '"Ah! Fortune smiles - literally, you\'re here! *grins*"',
+            '"*perks up* The wanderer who actually pays! Rare as phoenix teeth!"',
+            '"By the tides! I was JUST thinking about you. Honest!"'
+        ],
+        "random_observations": [
+            '"This fish? Caught it myself. Well, bought it from someone who caught it. Same thing!"',
+            '"Everything\'s negotiable, friend. Even negotiations!"',
+            '"I once traded a button for a boat. Long story. Involves a duke and three chickens."',
+            '"The secret to business? Make \'em laugh before they count their coins."'
+        ]
+    },
+    "ranger": {
+        "name": "The Ranger",
+        "quirk": "military_background",
+        "mood_states": ["alert", "approving", "stern", "battle_weary"],
+        "speech_pattern": "crisp_military",
+        "catchphrases": [
+            "*scans the treeline habitually*",
+            "*taps a weapon meaningfully*",
+            "*stands a bit straighter*"
+        ],
+        "personality_traits": [
+            "Former soldier who can't quite leave the regiment behind",
+            "Counts everything in tactical terms (distance, resources, threats)",
+            "Softens around campfire talk but snaps back to alert in seconds",
+            "Uses military time even though no one else does"
+        ],
+        "varied_greetings": [
+            '"*sharp nod* Report."',
+            '"Perimeter\'s clear. For now. *eyes you measuringly*"',
+            '"Good timing. The watch was getting dull."',
+            '"*relaxes slightly* Ah. Friendly. At ease."'
+        ],
+        "random_observations": [
+            '"Three exits from this camp. Always know your exits."',
+            '"Wilds are quiet. Too quiet. *suspicious look*"',
+            '"Lost half my unit in these woods. The other half... lost themselves."',
+            '"*touches old scar* Weather\'s turning. I can always tell."'
+        ]
+    }
+}
+
+def get_npc_personality(npc_name: str):
+    """Get personality profile for an NPC"""
+    return NPC_PERSONALITIES.get(npc_name.lower(), None)
+
+def npc_say(game, npc_name: str, message: str, add_action: bool = True):
+    """Have NPC speak with personality"""
+    personality = get_npc_personality(npc_name)
+    
+    if personality and add_action and random.random() < 0.3:
+        # 30% chance to add a characteristic action
+        action = random.choice(personality["catchphrases"])
+        game.say(action)
+    
+    game.say(f'{personality["name"] if personality else npc_name}: {message}')
+
+def npc_greet(game, npc_name: str):
+    """NPC gives a varied greeting"""
+    personality = get_npc_personality(npc_name)
+    
+    if personality:
+        greeting = random.choice(personality["varied_greetings"])
+        game.say(f'{personality["name"]}: {greeting}')
+        
+        # Occasionally add an observation
+        if random.random() < 0.25:
+            obs = random.choice(personality["random_observations"])
+            game.say(f'{personality["name"]}: {obs}')
+    else:
+        game.say(f"{npc_name}: Hello there.")
+
+def npc_random_comment(game, npc_name: str):
+    """NPC makes a random personality-driven comment"""
+    personality = get_npc_personality(npc_name)
+    
+    if personality and random.random() < 0.4:
+        comment = random.choice(personality["random_observations"])
+        game.say(f'{personality["name"]}: {comment}')
+
+# Enhanced dialogue variations
+CARETAKER_VARIANTS = {
+    "intro": [
+        '"A watcher of thresholds. I keep small fires lit... and smaller hopes alive."',
+        '"Some call me guardian. I prefer... custodian of forgotten things."',
+        '"*gestures to flickering candles* These flames are my companions. And duty."'
+    ],
+    "wilds": [
+        '"Beyond that gate lies beauty and terror, dancing eternal. The Wilds remember what we forgot."',
+        '"The forest calls to some. Devours others. *studying you* Which are you, I wonder?"',
+        '"Dangerous? Oh yes. But danger is just life, concentrated."'
+    ],
+    "grove_sick": [
+        '"The silver grove withers. Its song fades to whispers, then... *trails off*"',
+        '"Ancient trees bleed sap like tears. Two herbs might staunch the wound."',
+        '"The north grove stood before this Sanctum. Before ME. Now it dies."'
+    ]
+}
+
+HERMIT_VARIANTS = {
+    "intro": [
+        '"Came for silence. Found bugs. And fungi. And you, apparently. *sighs*"',
+        '"I brew. I heal. I prefer plants to people. No offense. Some offense."',
+        '"The forest teaches, if you shut up long enough to listen. Took me years."'
+    ],
+    "quest_offer": [
+        '"Need glowcaps. Three. They grow in damp misery. Like me. *almost smiles*"',
+        '"*to herbs* Should I ask them? *to you* Fine. Fetch glowcaps. Three."',
+        '"Glowcaps for salve. Salve for wounds. Wounds from stupidity, usually."'
+    ],
+    "completed": [
+        '"*actually looks at you* Huh. Didn\'t bungle it. Here. *tosses reward*"',
+        '"The plants approve. High praise, trust me. *slight nod*"',
+        '"*mutters* Competence. Refreshing. Now leave before I get used to it."'
+    ]
+}
+
+TRADER_VARIANTS = {
+    "greeting": [
+        '"My FRIEND! *spreads arms* You bring the sweet smell of commerce!"',
+        '"Ah! The hero of honest coin! Unlike SOME people... *glares at nobody*"',
+        '"*delighted* Perfect timing! I was just about to close. For you? Never!"'
+    ],
+    "quest_offer": [
+        '"Fish! Two of \'em. You catch, I pay. Simple! Well, simple-ISH. The lake\'s haunted."',
+        '"Fresh fish! My specialty! Well, OTHER people catch them. I specialize in... acquisition!"',
+        '"Two fish. Not three - that\'s greedy. Not one - that\'s stingy. Two. Balance!"'
+    ],
+    "completed": [
+        '"*inspects fish theatrically* MAGNIFICENT! These scales! This... fish-ness! *pays you*"',
+        '"Beautiful! Like poetry! Wet, scaly poetry! Your gold, friend. Earned!"',
+        '"*sniffs fish* Perfection! You know, I once sold a fish to a king... *starts story* ...actually, later. Your payment!"'
+    ]
+}
+
+RANGER_VARIANTS = {
+    "greeting": [
+        '"*sharp salute* Civilian cooperation appreciated. At ease."',
+        '"*eyes narrow* Friend or foe? *relaxes* Friend. Good. Report."',
+        '"Position held. Supplies low. *looks at you* Solution walks up. Convenient."'
+    ],
+    "quest_offer": [
+        '"Mission: acquire two ore. Location: eastern mine. Difficulty: moderate. Reward: guaranteed."',
+        '"Gear\'s failing. Need ore. Two units. *taps broken equipment* Clock\'s ticking."',
+        '"The mine. East. Ore there. Bring two. *all business* Time matters."'
+    ],
+    "completed": [
+        '"*inspects ore professionally* Grade A. Excellent work. *crisp nod* Compensation."',
+        '"Delivered as requested. Rare. *almost smiles* You\'d have made a good soldier."',
+        '"*relief crosses face* Camp\'s secure another day. Thanks to you. *hands reward*"'
+    ]
+}
+
+def p19_ext_handle_command(cmd, args, game):
+    prev = P19_PREV_EXT if P19_PREV_EXT is not p19_ext_handle_command else None
+    
+    # No new commands, just personality enhancements
+    
+    result = prev(cmd, args, game) if prev else False
+    return result
+
+ext_handle_command = p19_ext_handle_command
+
+
+# ===========================
 # BOOT GAME
 # ===========================
 
 game = Game()
+
+# Initialize Part 18
+part18_post_init(game)
+
+# Apply seed if specified in URL or daily/weekly mode
+if seed_param:
+    game.rng = core.SeededRNG(seed_param)
+    notify("info", f"Using seed: {seed_param}", 3000)
 
 # Check for first-time player and tutorial
 tutorial_done = localStorage.getItem("wilds_tutorial_done")
@@ -6684,8 +10794,8 @@ if first_time:
     localStorage.setItem("wilds_visited", "true")
 
 if not tutorial_done:
-    # Start interactive tutorial for new players
-    _p14_start_tutorial(game)
+    # Start new modular tutorial for new players
+    tutorial.start_tutorial(game)
     game.look()
 elif first_time:
     # First time but tutorial was skipped before
@@ -6697,20 +10807,39 @@ elif first_time:
     game.say("• Use arrow keys ↑↓ to browse command history")
     game.say("• Side panels auto-update with quests, map, inventory")
     game.say("• Game auto-saves; use 'save' to save manually")
+    game.say("• Press Tab to cycle UI, Esc to return focus to input")
     game.say("")
     game.look()
 else:
-    game.say("Welcome back to the Whispering Wilds. Type 'help' for commands.")
+    game.say("Welcome back to the Whispering Wilds.")
     game.look()
 
 # Auto-load if save exists (skip during tutorial)
 if localStorage.getItem("wilds_save") and tutorial_done:
     game.say("(Auto-loading your saved game...)")
     load_game(game)
+    
+    # Show session resume hint
+    hint = daily_spark.get_session_resume_hint(game)
+    if hint:
+        notify("info", hint, 5000)
+
+# Show daily objective
+objective, progress = daily_spark.get_daily_objective()
+if objective and tutorial_done:
+    desc = objective.get("desc", "complete daily objective")
+    goal = objective.get("count", 1)
+    if progress < goal:
+        ui.notify("success", f"📅 Daily Spark: {desc} ({progress}/{goal})", 5000)
+    else:
+        ui.notify("success", "✨ Daily Spark complete! Come back tomorrow for a new challenge.", 4000)
 
 # Update panels
 game._update_inv_panel()
 _p6_update_quest_panel(game)
+
+# Initialize XP bar display
+update_xp_display(game)
 
 
 # ===========================
