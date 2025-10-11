@@ -3922,11 +3922,11 @@ class Game:
         
         # IMPROVEMENT: Add navigation hints for special rooms (only if hints enabled)
         if window.areHintsEnabled():
-            if "wilds_mine" in r.id and r.id != "deep_mine":
+            if r.id == "wilds_mine" and "d" in r.neighbors:
                 self.say("Dark passages descend deeper below. (Type: descend)")
-            elif "wilds_lake" in r.id and r.id != "lake_depths":
+            elif "wilds_lake" in r.id and r.id != "lake_depths" and "d" in r.neighbors:
                 self.say("The water looks deep enough to dive into. (Type: dive)")
-            elif "wilds_tower" in r.id and r.id != "tower_top":
+            elif "wilds_tower" in r.id and r.id != "tower_top" and "u" in r.neighbors:
                 self.say("Stairs spiral upward to the summit. (Type: climb)")
             elif r.id == "sanctum":
                 if "u" in r.neighbors:
